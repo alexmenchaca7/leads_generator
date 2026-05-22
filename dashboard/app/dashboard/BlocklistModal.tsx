@@ -74,7 +74,7 @@ export default function BlocklistModal({
         </button>
       </div>
 
-      <div className="overflow-y-auto px-5 py-2">
+      <div className="overflow-y-auto overscroll-contain px-5 py-2">
         {loading ? (
           <p className="py-8 text-center text-slate-500">Cargando…</p>
         ) : rows.length === 0 ? (

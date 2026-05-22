@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { type Lead, OUTREACH_OPTIONS, CONTACTED_OPTIONS } from "@/types";
 import { DateField, Modal } from "./ui";
+import { cleanPhone, stripGlyphs } from "@/lib/clean";
 
 const FIELD =
   "w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500";
@@ -49,7 +50,15 @@ export default function EditModal({
   onClose: () => void;
   onSave: (values: Lead, mode: "edit" | "create") => void;
 }) {
-  const [form, setForm] = useState<Lead>(lead ?? emptyLead());
+  const [form, setForm] = useState<Lead>(() => {
+    const base = lead ?? emptyLead();
+    // Limpia datos viejos con glifos de íconos antes de mostrarlos en el form.
+    return {
+      ...base,
+      phone: cleanPhone(base.phone),
+      address: stripGlyphs(base.address),
+    };
+  });
 
   function set<K extends keyof Lead>(key: K, value: Lead[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -87,7 +96,7 @@ export default function EditModal({
         </h3>
       </div>
 
-      <div className="overflow-y-auto px-5 py-4">
+      <div className="overflow-y-auto overscroll-contain px-5 py-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Nombre *" full>
             <input className={FIELD} value={form.name} onChange={(e) => set("name", e.target.value)} />

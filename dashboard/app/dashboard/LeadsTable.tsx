@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { type Lead, OUTREACH_OPTIONS, CONTACTED_OPTIONS } from "@/types";
 import { DateField, LinkButton, PhoneLink, Modal } from "./ui";
+import { cleanPhone } from "@/lib/clean";
 import EditModal from "./EditModal";
 import BlocklistModal from "./BlocklistModal";
 
@@ -23,14 +24,6 @@ function rowClass(lead: Lead): string {
     return "bg-amber-500/[0.07] hover:bg-amber-500/10";
   if (lead.no_website) return "bg-emerald-500/[0.04] hover:bg-slate-800/50";
   return "hover:bg-slate-800/50";
-}
-
-function cleanPhone(raw: string | null): string {
-  if (!raw) return "";
-  const low = raw.toLowerCase();
-  if (low.includes("enviar al tel") || low.includes("send to phone")) return "";
-  const m = raw.match(/[+\d][\d\s().\-]{6,}/);
-  return m ? m[0].trim() : "";
 }
 
 type SortKey =
@@ -630,7 +623,7 @@ function NotesModal({
   const [text, setText] = useState(lead.notes ?? "");
   return (
     <Modal onClose={onClose} size="md">
-      <div className="overflow-y-auto p-5">
+      <div className="overflow-y-auto overscroll-contain p-5">
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">Notas de</div>
         <h3 className="mb-3 text-lg font-semibold text-white">{lead.name}</h3>
         <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={10}

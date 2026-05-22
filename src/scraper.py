@@ -54,6 +54,15 @@ _PHONE_SELECTORS = [
 _RATING_RE = re.compile(r"(\d[\.,]\d)\s*(star|estrella|estrellas|stars)", re.I)
 _REVIEWS_RE = re.compile(r"([\d\.,]+)\s*(review|reseña|opinión|reseñas|reviews|opiniones)", re.I)
 _LAT_LNG_RE = re.compile(r"@(-?\d+\.\d+),(-?\d+\.\d+)")
+# Glifos de íconos de Google Maps (área de uso privado) que se cuelan en el texto
+_GLYPH_RE = re.compile("[-🀀-🫿]")
+
+
+def _clean_text(s: str | None) -> str:
+    """Quita glifos de íconos y espacios sobrantes de un texto scrapeado."""
+    if not s:
+        return ""
+    return _GLYPH_RE.sub("", s).strip()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -343,9 +352,9 @@ class GoogleMapsScraper:
             website = await _try_selectors(page, _WEBSITE_SELECTORS)
         data["website"] = (website or "").strip()
 
-        # Address
+        # Address (limpio: sin glifo de ícono)
         address = await _try_selectors(page, _ADDRESS_SELECTORS)
-        data["address"] = (address or "").strip()
+        data["address"] = _clean_text(address)
 
         # Phone (limpio: sin ícono, sin "Enviar al teléfono")
         data["phone"] = await _extract_phone(page)

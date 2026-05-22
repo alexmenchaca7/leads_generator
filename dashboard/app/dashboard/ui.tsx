@@ -21,21 +21,37 @@ export function Modal({
   children: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
+  // Bloqueo de scroll robusto para iOS: fija el body en su posición actual.
+  // Evita que el fondo se desplace, se "sangre" sobre el modal o se trabe.
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const scrollY = window.scrollY;
+    const { body } = document;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = prev;
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      window.scrollTo(0, scrollY);
     };
   }, []);
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
       onClick={onClose}
     >
       <div
-        className={`flex max-h-[90vh] w-full ${SIZES[size]} flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl`}
+        className={`flex max-h-[90dvh] w-full ${SIZES[size]} flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

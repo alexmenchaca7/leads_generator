@@ -143,7 +143,7 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
             className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500"
           />
         </div>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex items-end gap-3">
           <div className="space-y-1">
             <label className="text-sm font-medium text-slate-300">Máx. resultados</label>
             <input
@@ -152,18 +152,18 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
               max={300}
               value={maxResults}
               onChange={(e) => setMaxResults(Math.max(1, Number(e.target.value) || 1))}
-              className="w-28 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-indigo-500"
+              className="w-24 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 outline-none focus:border-indigo-500"
             />
           </div>
           <button
             type="submit"
             disabled={submitting || !query.trim()}
-            className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+            className="flex-1 rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
           >
             {submitting ? "Enviando…" : "Buscar"}
           </button>
-          {msg && <span className="text-sm text-slate-400">{msg}</span>}
         </div>
+        {msg && <p className="text-sm text-slate-400">{msg}</p>}
         <p className="text-xs text-slate-500">
           La búsqueda se ejecuta en tu PC (sin abrir navegador) y los nuevos negocios
           aparecen solos en el Dashboard. Se omiten los ya guardados y los vetados.

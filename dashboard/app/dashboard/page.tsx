@@ -22,20 +22,22 @@ export default async function DashboardPage() {
   return (
     <main className="mx-auto max-w-[1700px] px-4 py-6">
       <IdleTimeout />
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+      <header className="mb-6 space-y-3 sm:flex sm:items-center sm:justify-between sm:space-y-0">
         <div>
           <h1 className="text-2xl font-bold text-white">Leads Dashboard</h1>
           <p className="text-sm text-slate-400">{userEmail}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-3 sm:justify-end">
           <OnlineUsers userEmail={userEmail} />
-          <Link
-            href="/scrape"
-            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
-          >
-            + Buscar negocios
-          </Link>
-          <SignOutButton />
+          <div className="flex gap-2">
+            <Link
+              href="/scrape"
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+            >
+              + Buscar
+            </Link>
+            <SignOutButton />
+          </div>
         </div>
       </header>
 

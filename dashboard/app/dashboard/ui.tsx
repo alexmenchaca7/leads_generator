@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
 // ── Modal reutilizable ─────────────────────────────────────────────────────────
 // Bloquea el scroll del fondo mientras está abierto (evita que el sistema se trabe)
@@ -21,31 +22,26 @@ export function Modal({
   children: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
-  // Bloqueo de scroll robusto para iOS: fija el body en su posición actual.
-  // Evita que el fondo se desplace, se "sangre" sobre el modal o se trabe.
+  // Bloquea el scroll del fondo sin mover el body (evita el bug de "fixed
+  // anidado" en iOS que hacía que el overlay no cubriera toda la pantalla).
   useEffect(() => {
-    const scrollY = window.scrollY;
+    const html = document.documentElement;
     const { body } = document;
-    const prev = {
-      position: body.style.position,
-      top: body.style.top,
-      width: body.style.width,
-      overflow: body.style.overflow,
-    };
-    body.style.position = "fixed";
-    body.style.top = `-${scrollY}px`;
-    body.style.width = "100%";
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    html.style.overflow = "hidden";
     body.style.overflow = "hidden";
     return () => {
-      body.style.position = prev.position;
-      body.style.top = prev.top;
-      body.style.width = prev.width;
-      body.style.overflow = prev.overflow;
-      window.scrollTo(0, scrollY);
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
     };
   }, []);
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  // Portal a <body>: el overlay escapa de cualquier contenedor con transform/
+  // filter y siempre cubre la pantalla completa.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
       onClick={onClose}
@@ -56,7 +52,8 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

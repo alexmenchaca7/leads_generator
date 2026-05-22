@@ -228,8 +228,13 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
 
   function changePage(p: number) {
     setPage(Math.min(Math.max(1, p), totalPages));
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  // Sube al inicio cada vez que cambia la página (instantáneo y confiable:
+  // corre después del render, así no lo cancela el cambio de altura de la lista).
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [current]);
 
   const stats = useMemo(
     () => ({

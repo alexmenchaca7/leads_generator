@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Lead } from "@/types";
 import LeadsTable from "./LeadsTable";
 import SignOutButton from "./SignOutButton";
+import IdleTimeout from "./IdleTimeout";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function DashboardPage() {
 
   return (
     <main className="mx-auto max-w-[1700px] px-4 py-6">
+      <IdleTimeout />
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Leads Dashboard</h1>

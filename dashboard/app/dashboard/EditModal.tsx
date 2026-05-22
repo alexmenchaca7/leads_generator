@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { type Lead, OUTREACH_OPTIONS, CONTACTED_OPTIONS } from "@/types";
-import { DateField } from "./ui";
+import { DateField, Modal } from "./ui";
 
 const FIELD =
   "w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500";
@@ -80,18 +80,14 @@ export default function EditModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="my-8 w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="mb-4 text-lg font-semibold text-white">
+    <Modal onClose={onClose} size="xl">
+      <div className="shrink-0 border-b border-slate-800 px-5 py-4">
+        <h3 className="text-lg font-semibold text-white">
           {mode === "create" ? "Nuevo lead" : "Editar lead"}
         </h3>
+      </div>
 
+      <div className="overflow-y-auto px-5 py-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Nombre *" full>
             <input className={FIELD} value={form.name} onChange={(e) => set("name", e.target.value)} />
@@ -156,17 +152,17 @@ export default function EditModal({
             <textarea className={FIELD + " resize-y"} rows={4} value={form.notes ?? ""} onChange={(e) => set("notes", e.target.value)} />
           </Field>
         </div>
-
-        <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800">
-            Cancelar
-          </button>
-          <button onClick={submit} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
-            {mode === "create" ? "Agregar" : "Guardar"}
-          </button>
-        </div>
       </div>
-    </div>
+
+      <div className="flex shrink-0 justify-end gap-2 border-t border-slate-800 px-5 py-4">
+        <button onClick={onClose} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800">
+          Cancelar
+        </button>
+        <button onClick={submit} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
+          {mode === "create" ? "Agregar" : "Guardar"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

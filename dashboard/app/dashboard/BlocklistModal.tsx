@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Lead } from "@/types";
+import { Modal } from "./ui";
 
 type BlockRow = {
   business_id: string;
@@ -60,32 +61,24 @@ export default function BlocklistModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="my-8 w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">
-            Negocios vetados {rows.length > 0 && `(${rows.length})`}
-          </h3>
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
-          >
-            Cerrar
-          </button>
-        </div>
+    <Modal onClose={onClose} size="lg">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-800 px-5 py-4">
+        <h3 className="text-lg font-semibold text-white">
+          Negocios vetados {rows.length > 0 && `(${rows.length})`}
+        </h3>
+        <button
+          onClick={onClose}
+          className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+        >
+          Cerrar
+        </button>
+      </div>
 
+      <div className="overflow-y-auto px-5 py-2">
         {loading ? (
           <p className="py-8 text-center text-slate-500">Cargando…</p>
         ) : rows.length === 0 ? (
-          <p className="py-8 text-center text-slate-500">
-            No hay negocios vetados.
-          </p>
+          <p className="py-8 text-center text-slate-500">No hay negocios vetados.</p>
         ) : (
           <ul className="divide-y divide-slate-800">
             {rows.map((r) => (
@@ -114,6 +107,6 @@ export default function BlocklistModal({
           </ul>
         )}
       </div>
-    </div>
+    </Modal>
   );
 }

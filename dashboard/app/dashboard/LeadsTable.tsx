@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { type Lead, OUTREACH_OPTIONS, CONTACTED_OPTIONS } from "@/types";
-import { DateField, LinkButton } from "./ui";
+import { DateField, LinkButton, PhoneLink, Modal } from "./ui";
 import EditModal from "./EditModal";
 import BlocklistModal from "./BlocklistModal";
 
@@ -233,6 +233,11 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
   const start = (current - 1) * pageSize;
   const pageRows = sorted.slice(start, start + pageSize);
 
+  function changePage(p: number) {
+    setPage(Math.min(Math.max(1, p), totalPages));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   const stats = useMemo(
     () => ({
       total: leads.length,
@@ -376,12 +381,14 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
               <tr key={l.business_id} className={rowClass(l)}>
                 <td className="px-3 py-2 font-medium text-slate-100">{l.name}</td>
                 <td className="px-3 py-2 text-slate-400">{l.category}</td>
-                <td className="whitespace-nowrap px-3 py-2">{cleanPhone(l.phone) || "—"}</td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  {cleanPhone(l.phone) ? <PhoneLink phone={cleanPhone(l.phone)} /> : "—"}
+                </td>
                 <td className="px-3 py-2">
                   {l.no_website ? (
                     <span className="whitespace-nowrap rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">Sin web</span>
                   ) : (
-                    <span className="text-xs text-slate-500">tiene</span>
+                    <span className="whitespace-nowrap rounded-full bg-slate-700/50 px-2 py-0.5 text-xs font-medium text-slate-400">Con web</span>
                   )}
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
@@ -454,22 +461,22 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
       </div>
 
       {/* Paginación */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm text-slate-400">
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm text-slate-400 sm:flex-row sm:justify-between">
         <div className="flex items-center gap-2">
-          <span className="hidden sm:inline">Filas por página</span>
+          <span>Filas:</span>
           <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className={INPUT}>
             {PAGE_SIZES.map((n) => (<option key={n} value={n}>{n}</option>))}
           </select>
+          <span className="whitespace-nowrap">
+            · {total === 0 ? "0" : `${start + 1}–${Math.min(start + pageSize, total)}`} de {total}
+          </span>
         </div>
-        <span className="ml-auto whitespace-nowrap">
-          {total === 0 ? "0" : `${start + 1}–${Math.min(start + pageSize, total)}`} de {total}
-        </span>
-        <div className="flex items-center gap-1">
-          <PageBtn onClick={() => setPage(1)} disabled={current === 1}>«</PageBtn>
-          <PageBtn onClick={() => setPage(current - 1)} disabled={current === 1}>‹</PageBtn>
+        <div className="flex shrink-0 items-center gap-1">
+          <PageBtn onClick={() => changePage(1)} disabled={current === 1}>«</PageBtn>
+          <PageBtn onClick={() => changePage(current - 1)} disabled={current === 1}>‹</PageBtn>
           <span className="whitespace-nowrap px-2 text-slate-300">{current}/{totalPages}</span>
-          <PageBtn onClick={() => setPage(current + 1)} disabled={current === totalPages}>›</PageBtn>
-          <PageBtn onClick={() => setPage(totalPages)} disabled={current === totalPages}>»</PageBtn>
+          <PageBtn onClick={() => changePage(current + 1)} disabled={current === totalPages}>›</PageBtn>
+          <PageBtn onClick={() => changePage(totalPages)} disabled={current === totalPages}>»</PageBtn>
         </div>
       </div>
 
@@ -553,13 +560,32 @@ function LeadCard({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-slate-300">
-        <span>📞 {cleanPhone(l.phone) || "—"}</span>
-        <span>{l.rating ? `${l.rating}★` : "—"} {l.reviews_count ? `(${l.reviews_count})` : ""}</span>
-        <span className="font-semibold text-slate-100">Score {l.lead_score}</span>
-        {l.no_website && <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">Sin web</span>}
-        {!l.no_website && l.website && <LinkButton href={l.website}>sitio</LinkButton>}
-        {l.maps_url && <LinkButton href={l.maps_url}>maps</LinkButton>}
+      <div className="mt-3 space-y-2">
+        {cleanPhone(l.phone) ? (
+          <PhoneLink phone={cleanPhone(l.phone)} />
+        ) : (
+          <span className="text-sm text-slate-500">Sin teléfono</span>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-xs text-amber-300">
+            ★ {l.rating ?? "—"}
+            {l.reviews_count ? <span className="text-slate-500">({l.reviews_count})</span> : null}
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300">
+            Score <b className="text-white">{l.lead_score}</b>
+          </span>
+          {l.no_website ? (
+            <span className="rounded-md bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-300">Sin web</span>
+          ) : (
+            <span className="rounded-md bg-slate-700/50 px-2 py-1 text-xs font-medium text-slate-400">Con web</span>
+          )}
+        </div>
+        {(l.website && !l.no_website) || l.maps_url ? (
+          <div className="flex flex-wrap gap-2">
+            {!l.no_website && l.website && <LinkButton href={l.website}>sitio</LinkButton>}
+            {l.maps_url && <LinkButton href={l.maps_url}>maps</LinkButton>}
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -603,8 +629,8 @@ function NotesModal({
 }) {
   const [text, setText] = useState(lead.notes ?? "");
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} size="md">
+      <div className="overflow-y-auto p-5">
         <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">Notas de</div>
         <h3 className="mb-3 text-lg font-semibold text-white">{lead.name}</h3>
         <textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} rows={10}
@@ -615,7 +641,7 @@ function NotesModal({
           <button onClick={() => onSave(text)} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500">Guardar</button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -630,8 +656,8 @@ function ConfirmModal({
   onConfirm: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onCancel}>
-      <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onCancel} size="sm">
+      <div className="p-6">
         <h3 className="mb-2 text-lg font-semibold text-white">¿Vetar este negocio?</h3>
         <p className="mb-5 text-sm text-slate-400">
           <span className="font-medium text-slate-200">{lead.name}</span> se eliminará del tablero y el scraper
@@ -642,7 +668,7 @@ function ConfirmModal({
           <button onClick={onConfirm} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500">Sí, vetar</button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

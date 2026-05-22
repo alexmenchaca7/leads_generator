@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { type Lead, OUTREACH_OPTIONS, CONTACTED_OPTIONS } from "@/types";
+import { type Lead, OUTREACH_OPTIONS } from "@/types";
 import { DateField, LinkButton, PhoneLink, Modal } from "./ui";
 import { cleanPhone } from "@/lib/clean";
 import EditModal from "./EditModal";
@@ -277,7 +277,6 @@ export default function LeadsTable({
       if (f.web === "w" && l.no_website) return false;
       if (f.priority && f.priority !== "all" && l.priority !== f.priority) return false;
       if (f.outreach_status && f.outreach_status !== "all" && l.outreach_status !== f.outreach_status) return false;
-      if (f.contacted && f.contacted !== "all" && l.contacted !== f.contacted) return false;
       return true;
     });
   }, [leads, search, colFilters]);
@@ -334,7 +333,7 @@ export default function LeadsTable({
       total: leads.length,
       sinWeb: leads.filter((l) => l.no_website).length,
       alta: leads.filter((l) => l.priority === "high").length,
-      contactados: leads.filter((l) => l.contacted === "sí").length,
+      contactados: leads.filter((l) => l.outreach_status && l.outreach_status !== "pendiente").length,
     }),
     [leads]
   );
@@ -383,7 +382,7 @@ export default function LeadsTable({
           />
           <button
             onClick={() => setShowMobileFilters((v) => !v)}
-            className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 lg:hidden"
+            className="shrink-0 rounded-lg border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"
           >
             Filtros
           </button>
@@ -404,7 +403,7 @@ export default function LeadsTable({
         </div>
 
         {showMobileFilters && (
-          <div className="grid grid-cols-2 gap-2 lg:hidden">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <FilterSelect value={colFilters.category ?? "all"} onChange={(v) => setColFilter("category", v)} label="Categoría"
               options={[["all", "Todas"], ...categories.map((c) => [c, c] as [string, string])]} />
             <FilterSelect value={colFilters.web ?? "all"} onChange={(v) => setColFilter("web", v)} label="Web"
@@ -413,8 +412,6 @@ export default function LeadsTable({
               options={[["all", "Todas"], ["high", "Alta"], ["medium", "Media"], ["low", "Baja"]]} />
             <FilterSelect value={colFilters.outreach_status ?? "all"} onChange={(v) => setColFilter("outreach_status", v)} label="Estado"
               options={[["all", "Todos"], ...OUTREACH_OPTIONS.map((o) => [o, o] as [string, string])]} />
-            <FilterSelect value={colFilters.contacted ?? "all"} onChange={(v) => setColFilter("contacted", v)} label="Contactado"
-              options={[["all", "Todos"], ...CONTACTED_OPTIONS.map((o) => [o, o] as [string, string])]} />
           </div>
         )}
       </div>
@@ -456,11 +453,11 @@ export default function LeadsTable({
       )}
 
       {/* ── ESCRITORIO: tabla ──────────────────────────────────────────────── */}
-      <div className="hidden overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 lg:block">
-        <table className="w-full min-w-[1440px] text-sm">
+      <div className="hidden overflow-hidden rounded-xl border border-slate-800 bg-slate-900 lg:block">
+        <table className="w-full table-auto text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
             <tr className="border-b border-slate-800">
-              <th className="px-3 py-2">
+              <th className="px-2 py-2">
                 <input
                   type="checkbox"
                   checked={pageAllSelected}
@@ -470,64 +467,16 @@ export default function LeadsTable({
                 />
               </th>
               <Th label="Negocio" sortKey="name" sort={sort} onSort={toggleSort} />
-              <Th label="Categoría" sortKey="category" sort={sort} onSort={toggleSort} />
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">Teléfono</th>
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">Web</th>
+              <th className="whitespace-nowrap px-2 py-2 font-semibold">Teléfono</th>
               <Th label="Rating" sortKey="rating" sort={sort} onSort={toggleSort} />
               <Th label="Score" sortKey="lead_score" sort={sort} onSort={toggleSort} />
-              <Th label="Prioridad" sortKey="priority" sort={sort} onSort={toggleSort} />
+              <Th label="Prior." sortKey="priority" sort={sort} onSort={toggleSort} />
               <Th label="Estado" sortKey="outreach_status" sort={sort} onSort={toggleSort} />
-              <Th label="Contactado" sortKey="contacted" sort={sort} onSort={toggleSort} />
-              <Th label="Seguimiento" sortKey="follow_up" sort={sort} onSort={toggleSort} />
-              <Th label="Primera vez" sortKey="first_seen" sort={sort} onSort={toggleSort} />
-              <Th label="Última vez" sortKey="last_seen" sort={sort} onSort={toggleSort} />
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">Notas</th>
-              <th className="whitespace-nowrap px-3 py-2 font-semibold">Enlaces</th>
-              <th className="whitespace-nowrap px-3 py-2 text-center font-semibold">Acciones</th>
-            </tr>
-            <tr className="border-b border-slate-800 bg-slate-900/60">
-              <td className="px-2 py-1.5" />
-              <td className="px-2 py-1.5">
-                <input value={colFilters.name ?? ""} onChange={(e) => setColFilter("name", e.target.value)} placeholder="filtrar…" className={INPUT + " w-full min-w-[120px]"} />
-              </td>
-              <td className="px-2 py-1.5">
-                <select value={colFilters.category ?? "all"} onChange={(e) => setColFilter("category", e.target.value)} className={INPUT + " w-full min-w-[120px]"}>
-                  <option value="all">Todas</option>
-                  {categories.map((c) => (<option key={c} value={c}>{c}</option>))}
-                </select>
-              </td>
-              <td className="px-2 py-1.5">
-                <input value={colFilters.phone ?? ""} onChange={(e) => setColFilter("phone", e.target.value)} placeholder="filtrar…" className={INPUT + " w-full min-w-[110px]"} />
-              </td>
-              <td className="px-2 py-1.5">
-                <select value={colFilters.web ?? "all"} onChange={(e) => setColFilter("web", e.target.value)} className={INPUT + " w-full min-w-[90px]"}>
-                  <option value="all">Todos</option>
-                  <option value="nw">Sin web</option>
-                  <option value="w">Con web</option>
-                </select>
-              </td>
-              <td /><td />
-              <td className="px-2 py-1.5">
-                <select value={colFilters.priority ?? "all"} onChange={(e) => setColFilter("priority", e.target.value)} className={INPUT + " w-full min-w-[90px]"}>
-                  <option value="all">Todas</option>
-                  <option value="high">Alta</option>
-                  <option value="medium">Media</option>
-                  <option value="low">Baja</option>
-                </select>
-              </td>
-              <td className="px-2 py-1.5">
-                <select value={colFilters.outreach_status ?? "all"} onChange={(e) => setColFilter("outreach_status", e.target.value)} className={INPUT + " w-full min-w-[110px]"}>
-                  <option value="all">Todos</option>
-                  {OUTREACH_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
-                </select>
-              </td>
-              <td className="px-2 py-1.5">
-                <select value={colFilters.contacted ?? "all"} onChange={(e) => setColFilter("contacted", e.target.value)} className={INPUT + " w-full min-w-[80px]"}>
-                  <option value="all">Todos</option>
-                  {CONTACTED_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
-                </select>
-              </td>
-              <td /><td /><td /><td /><td /><td />
+              <Th label="Seguim." sortKey="follow_up" sort={sort} onSort={toggleSort} />
+              <Th label="Visto" sortKey="last_seen" sort={sort} onSort={toggleSort} />
+              <th className="whitespace-nowrap px-2 py-2 font-semibold">Web</th>
+              <th className="whitespace-nowrap px-2 py-2 font-semibold">Notas</th>
+              <th className="whitespace-nowrap px-2 py-2 text-center font-semibold">Acc.</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/70 text-slate-300">
@@ -536,62 +485,58 @@ export default function LeadsTable({
                 key={l.business_id}
                 className={`${rowClass(l)} ${selected.has(l.business_id) ? "bg-indigo-500/10" : ""}`}
               >
-                <td className="px-3 py-2">
+                <td className="px-2 py-2 align-top">
                   <input
                     type="checkbox"
                     checked={selected.has(l.business_id)}
                     onChange={() => toggleOne(l.business_id)}
-                    className="h-4 w-4 rounded border-slate-600 bg-slate-800 accent-indigo-600"
+                    className="mt-1 h-4 w-4 rounded border-slate-600 bg-slate-800 accent-indigo-600"
                   />
                 </td>
-                <td className="px-3 py-2 font-medium text-slate-100">{l.name}</td>
-                <td className="px-3 py-2 text-slate-400">{l.category}</td>
-                <td className="whitespace-nowrap px-3 py-2">
+                <td className="px-2 py-2">
+                  <div className="font-medium text-slate-100">{l.name}</div>
+                  <div className="text-xs text-slate-500">{l.category}</div>
+                </td>
+                <td className="whitespace-nowrap px-2 py-2">
                   {cleanPhone(l.phone) ? <PhoneLink phone={cleanPhone(l.phone)} /> : "—"}
                 </td>
-                <td className="px-3 py-2">
-                  {l.no_website ? (
-                    <span className="whitespace-nowrap rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">Sin web</span>
-                  ) : (
-                    <span className="whitespace-nowrap rounded-full bg-slate-700/50 px-2 py-0.5 text-xs font-medium text-slate-400">Con web</span>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-3 py-2">
+                <td className="whitespace-nowrap px-2 py-2">
                   {l.rating ? `${l.rating}★` : "—"}
                   <span className="text-xs text-slate-500">{l.reviews_count ? ` (${l.reviews_count})` : ""}</span>
                 </td>
-                <td className="px-3 py-2 font-semibold text-slate-100">{l.lead_score}</td>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2 font-semibold text-slate-100">{l.lead_score}</td>
+                <td className="px-2 py-2">
                   <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_STYLES[l.priority] ?? PRIORITY_STYLES.low}`}>{l.priority}</span>
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2">
                   <select value={l.outreach_status ?? "pendiente"} onChange={(e) => updateLead(l.business_id, { outreach_status: e.target.value })} className={INPUT}>
                     {OUTREACH_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
                   </select>
                 </td>
-                <td className="px-3 py-2">
-                  <select value={l.contacted ?? "no"} onChange={(e) => updateLead(l.business_id, { contacted: e.target.value })} className={INPUT}>
-                    {CONTACTED_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
-                  </select>
-                </td>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2">
                   <DateField value={l.follow_up} onChange={(v) => updateLead(l.business_id, { follow_up: v })} />
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{l.first_seen ?? "—"}</td>
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{l.last_seen ?? "—"}</td>
-                <td className="px-3 py-2">
-                  <button onClick={() => setNotesLead(l)} className="flex max-w-[160px] items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:border-indigo-500">
-                    <NoteIcon />
-                    <span className="truncate">{l.notes ? l.notes : <span className="text-slate-500">agregar</span>}</span>
-                  </button>
+                <td className="whitespace-nowrap px-2 py-2 text-[11px] text-slate-500">
+                  <div>1ª {l.first_seen ?? "—"}</div>
+                  <div>Últ {l.last_seen ?? "—"}</div>
                 </td>
-                <td className="px-3 py-2">
-                  <div className="flex gap-1.5">
-                    {!l.no_website && l.website && <LinkButton href={l.website}>sitio</LinkButton>}
+                <td className="px-2 py-2">
+                  <div className="flex flex-wrap items-center gap-1">
+                    {l.no_website ? (
+                      <span className="whitespace-nowrap rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">Sin web</span>
+                    ) : (
+                      l.website && <LinkButton href={l.website}>sitio</LinkButton>
+                    )}
                     {l.maps_url && <LinkButton href={l.maps_url}>maps</LinkButton>}
                   </div>
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2">
+                  <button onClick={() => setNotesLead(l)} className="flex max-w-[140px] items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:border-indigo-500">
+                    <NoteIcon />
+                    <span className="truncate">{l.notes ? l.notes : <span className="text-slate-500">+ nota</span>}</span>
+                  </button>
+                </td>
+                <td className="px-2 py-2">
                   <div className="flex items-center justify-center gap-1">
                     <button onClick={() => setEditState({ mode: "edit", lead: l })} title="Editar" className="rounded-md p-1.5 text-slate-400 hover:bg-indigo-500/10 hover:text-indigo-400">
                       <EditIcon />
@@ -604,7 +549,7 @@ export default function LeadsTable({
               </tr>
             ))}
             {pageRows.length === 0 && (
-              <tr><td colSpan={16} className="px-3 py-12 text-center text-slate-500">No hay leads que coincidan con los filtros.</td></tr>
+              <tr><td colSpan={12} className="px-3 py-12 text-center text-slate-500">No hay leads que coincidan con los filtros.</td></tr>
             )}
           </tbody>
         </table>
@@ -817,12 +762,6 @@ function LeadCard({
           <span className="text-[11px] text-slate-500">Estado</span>
           <select value={l.outreach_status ?? "pendiente"} onChange={(e) => onUpdate(l.business_id, { outreach_status: e.target.value })} className={INPUT + " w-full"}>
             {OUTREACH_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
-          </select>
-        </label>
-        <label className="space-y-1">
-          <span className="text-[11px] text-slate-500">Contactado</span>
-          <select value={l.contacted ?? "no"} onChange={(e) => onUpdate(l.business_id, { contacted: e.target.value })} className={INPUT + " w-full"}>
-            {CONTACTED_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
           </select>
         </label>
         <label className="space-y-1">

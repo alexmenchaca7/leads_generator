@@ -129,6 +129,20 @@ def _run_job(sync, excel, job):
                 "finished_at": _now(),
             }
         ).eq("id", job_id).execute()
+
+        # Registra en el historial de cambios que la búsqueda agregó negocios.
+        if new_count > 0:
+            try:
+                client.table("activity_log").insert({
+                    "user_email": job.get("requested_by") or "",
+                    "action": "scrape",
+                    "business_id": None,
+                    "business_name": f'{new_count} negocios · "{query}"',
+                    "changes": {"new_names": new_names, "query": query},
+                }).execute()
+            except Exception as exc:
+                logger.debug("No se pudo registrar en activity_log: %s", exc)
+
         logger.info("✓ Trabajo %s listo: %d nuevos, %d omitidos", job_id[:8], new_count, len(skipped_names))
 
     except Exception as exc:

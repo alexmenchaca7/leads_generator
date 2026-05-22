@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { type Lead, OUTREACH_OPTIONS, CONTACTED_OPTIONS } from "@/types";
+import { type Lead, OUTREACH_OPTIONS } from "@/types";
 import { DateField, Modal } from "./ui";
 import { cleanPhone, stripGlyphs } from "@/lib/clean";
 
@@ -138,13 +138,6 @@ export default function EditModal({
           <Field label="Estado">
             <select className={FIELD} value={form.outreach_status} onChange={(e) => set("outreach_status", e.target.value)}>
               {OUTREACH_OPTIONS.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Contactado">
-            <select className={FIELD} value={form.contacted} onChange={(e) => set("contacted", e.target.value)}>
-              {CONTACTED_OPTIONS.map((o) => (
                 <option key={o} value={o}>{o}</option>
               ))}
             </select>

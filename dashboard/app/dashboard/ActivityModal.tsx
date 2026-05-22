@@ -63,6 +63,7 @@ const ACTION_VERB: Record<string, string> = {
   delete: "vetó",
   recover: "recuperó",
   update: "editó",
+  scrape: "agregó por búsqueda",
 };
 
 export default function ActivityModal({

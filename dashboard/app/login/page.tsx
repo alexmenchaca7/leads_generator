@@ -6,21 +6,27 @@ import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
-    setLoading(true);
 
+    // Leemos directo del formulario (no estado de React) para capturar lo que
+    // el gestor de contraseñas autocompletó, aunque no dispare onChange.
+    const fd = new FormData(e.currentTarget);
+    const email = String(fd.get("email") ?? "").trim();
+    const password = String(fd.get("password") ?? "");
+
+    if (!email || !password) {
+      setError("Escribe tu correo y contraseña.");
+      return;
+    }
+
+    setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
     if (error) {
       setError("Correo o contraseña incorrectos.");
@@ -47,24 +53,32 @@ export default function LoginPage() {
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-slate-300">Correo</label>
+          <label htmlFor="email" className="text-sm font-medium text-slate-300">
+            Correo
+          </label>
           <input
+            id="email"
+            name="email"
             type="email"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
             className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
             placeholder="tu@correo.com"
           />
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-slate-300">Contraseña</label>
+          <label htmlFor="password" className="text-sm font-medium text-slate-300">
+            Contraseña
+          </label>
           <input
+            id="password"
+            name="password"
             type="password"
             required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
             className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30"
             placeholder="••••••••"
           />

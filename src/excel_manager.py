@@ -316,21 +316,24 @@ class ExcelManager:
         new_count = dup_count = 0
 
         for biz in businesses:
-            maps_url = normalize_url(biz.get("maps_url") or "")
-            biz_id   = generate_business_id(
-                maps_url=maps_url,
+            # La URL real (con /data=<CID>) es el link al negocio; SOLO la
+            # normalizamos para la clave de dedup, nunca para guardarla.
+            original_url = (biz.get("maps_url") or "").strip()
+            norm = normalize_url(original_url)
+            biz_id = generate_business_id(
+                maps_url=norm,
                 name=biz.get("name", ""),
                 address=biz.get("address", ""),
             )
 
             # Dedup check
-            if (maps_url and maps_url in existing_urls) or biz_id in existing_ids:
+            if (norm and norm in existing_urls) or biz_id in existing_ids:
                 dup_count += 1
                 continue
 
-            # Enrich
+            # Enrich (conserva el link real completo)
             biz["business_id"] = biz_id
-            biz["maps_url"]    = maps_url
+            biz["maps_url"]    = original_url
             biz.update(calculate_score(biz))
 
             row     = _business_to_row(biz, first_seen=now, last_seen=now)
@@ -347,7 +350,7 @@ class ExcelManager:
                     ws_raw.cell(row=row_num, column=col_idx).fill = fill
 
             existing_ids.add(biz_id)
-            existing_urls.add(maps_url)
+            existing_urls.add(norm)
             new_count += 1
 
         self._refresh_filtered_sheets(wb)
@@ -378,14 +381,14 @@ class ExcelManager:
         now      = datetime.now().strftime("%Y-%m-%d")
 
         for biz in businesses:
-            maps_url = normalize_url(biz.get("maps_url") or "")
-            biz_id   = generate_business_id(
-                maps_url=maps_url,
+            original_url = (biz.get("maps_url") or "").strip()
+            biz_id = generate_business_id(
+                maps_url=normalize_url(original_url),
                 name=biz.get("name", ""),
                 address=biz.get("address", ""),
             )
             biz["business_id"] = biz_id
-            biz["maps_url"]    = maps_url
+            biz["maps_url"]    = original_url
             biz.update(calculate_score(biz))
             ws.append(_business_to_row(biz, first_seen=now, last_seen=now))
 

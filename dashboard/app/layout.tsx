@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Leads Dashboard",
-  description: "Panel de leads — seguridad privada",
+  description: "Panel de leads",
 };
 
 export default function RootLayout({

@@ -7,6 +7,7 @@ import { DateField, LinkButton, PhoneLink, Modal } from "./ui";
 import { cleanPhone } from "@/lib/clean";
 import EditModal from "./EditModal";
 import BlocklistModal from "./BlocklistModal";
+import ActivityModal from "./ActivityModal";
 
 const PRIORITY_STYLES: Record<string, string> = {
   high: "bg-red-500/15 text-red-300 ring-1 ring-red-500/30",
@@ -32,7 +33,13 @@ type SortKey =
 
 type Toast = { id: number; msg: string; type: "success" | "error" };
 
-export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
+export default function LeadsTable({
+  initialLeads,
+  userEmail,
+}: {
+  initialLeads: Lead[];
+  userEmail: string;
+}) {
   const [supabase] = useState(() => createClient());
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
   const [search, setSearch] = useState("");
@@ -51,12 +58,29 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
   const [editState, setEditState] = useState<{ mode: "edit" | "create"; lead: Lead | null } | null>(null);
   const [confirmLead, setConfirmLead] = useState<Lead | null>(null);
   const [showBlocklist, setShowBlocklist] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
   const [blockedCount, setBlockedCount] = useState(0);
 
   function notify(msg: string, type: "success" | "error" = "success") {
     const id = Date.now() + Math.random();
     setToasts((t) => [...t, { id, msg, type }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2800);
+  }
+
+  // Registra un cambio en el log de actividad (auditoría compartida).
+  async function logActivity(
+    action: "update" | "create" | "delete" | "recover",
+    business_id: string,
+    business_name: string,
+    changes: Record<string, { old: unknown; new: unknown }> | null
+  ) {
+    await supabase.from("activity_log").insert({
+      user_email: userEmail,
+      action,
+      business_id,
+      business_name,
+      changes,
+    });
   }
 
   async function refreshBlockedCount() {
@@ -102,15 +126,26 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
 
   // ── Mutaciones ───────────────────────────────────────────────────────────────
   async function updateLead(id: string, patch: Partial<Lead>) {
-    const name = patch.name ?? leads.find((l) => l.business_id === id)?.name ?? "";
+    const prev = leads.find((l) => l.business_id === id);
+    const name = patch.name ?? prev?.name ?? "";
+
+    // Calcula el diff (campo: viejo → nuevo) solo de lo que realmente cambió.
+    const changes: Record<string, { old: unknown; new: unknown }> = {};
+    for (const k of Object.keys(patch) as (keyof Lead)[]) {
+      const oldV = prev ? prev[k] : null;
+      if (oldV !== patch[k]) changes[k] = { old: oldV ?? null, new: patch[k] ?? null };
+    }
+    if (Object.keys(changes).length === 0) return; // nada cambió
+
     setSaving(id);
-    setLeads((prev) =>
-      prev.map((l) => (l.business_id === id ? { ...l, ...patch } : l))
+    setLeads((prevL) =>
+      prevL.map((l) => (l.business_id === id ? { ...l, ...patch } : l))
     );
     const { error } = await supabase.from("leads").update(patch).eq("business_id", id);
     setSaving(null);
     if (error) return notify("No se pudo guardar: " + error.message, "error");
     notify(`✓ Guardado: ${name}`);
+    logActivity("update", id, name, changes);
   }
 
   async function insertLead(values: Lead) {
@@ -122,6 +157,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
       return notify("No se pudo agregar: " + error.message, "error");
     }
     notify(`✓ Agregado: ${values.name}`);
+    logActivity("create", values.business_id, values.name, null);
   }
 
   function saveEdit(values: Lead, mode: "edit" | "create") {
@@ -152,6 +188,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
     if (error) return notify("No se pudo eliminar: " + error.message, "error");
     notify(`✓ Vetado: ${lead.name}`);
     setBlockedCount((c) => c + 1);
+    logActivity("delete", lead.business_id, lead.name, null);
   }
 
   function onRecovered(lead: Lead) {
@@ -270,6 +307,12 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
           >
             Vetados{blockedCount > 0 ? ` (${blockedCount})` : ""}
+          </button>
+          <button
+            onClick={() => setShowActivity(true)}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            Historial
           </button>
           <input
             value={search}
@@ -500,8 +543,16 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
       {showBlocklist && (
         <BlocklistModal
           supabase={supabase}
+          userEmail={userEmail}
           onClose={() => setShowBlocklist(false)}
           onRecovered={onRecovered}
+          notify={notify}
+        />
+      )}
+      {showActivity && (
+        <ActivityModal
+          supabase={supabase}
+          onClose={() => setShowActivity(false)}
           notify={notify}
         />
       )}

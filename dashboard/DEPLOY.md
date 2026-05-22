@@ -24,8 +24,10 @@ Scraper local (Python)  ──push──►  Supabase (Postgres + Auth + Realtim
    pégalo y dale **Run**. Debe decir *Success*. Esto crea las tablas `leads`, `contacts`
    y `blocklist` (leads vetados), la seguridad y el Realtime.
 
-   > Si ya habías corrido una versión anterior del esquema (sin `blocklist`),
-   > corre además [`supabase/02_blocklist.sql`](../supabase/02_blocklist.sql) en el SQL Editor.
+   > Si ya habías corrido una versión anterior del esquema, corre además en el
+   > SQL Editor: [`supabase/02_blocklist.sql`](../supabase/02_blocklist.sql)
+   > (leads vetados) y [`supabase/03_activity.sql`](../supabase/03_activity.sql)
+   > (historial de cambios).
 
 ### Obtener las llaves
 Ve a **Project Settings** (engrane) → **API**. Copia estos 3 valores:

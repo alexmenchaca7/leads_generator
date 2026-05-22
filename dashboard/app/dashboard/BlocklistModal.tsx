@@ -14,11 +14,13 @@ type BlockRow = {
 
 export default function BlocklistModal({
   supabase,
+  userEmail,
   onClose,
   onRecovered,
   notify,
 }: {
   supabase: SupabaseClient;
+  userEmail: string;
   onClose: () => void;
   onRecovered: (lead: Lead) => void;
   notify: (msg: string, type?: "success" | "error") => void;
@@ -56,6 +58,13 @@ export default function BlocklistModal({
     await supabase.from("blocklist").delete().eq("business_id", row.business_id);
     setRows((prev) => prev.filter((r) => r.business_id !== row.business_id));
     if (row.data) onRecovered(row.data);
+    await supabase.from("activity_log").insert({
+      user_email: userEmail,
+      action: "recover",
+      business_id: row.business_id,
+      business_name: row.name ?? "",
+      changes: null,
+    });
     notify(`✓ Recuperado: ${row.name || row.business_id}`);
     setBusy(null);
   }

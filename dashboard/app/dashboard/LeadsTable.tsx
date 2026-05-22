@@ -23,6 +23,16 @@ function rowClass(lead: Lead): string {
   return "hover:bg-slate-800/50";
 }
 
+// Limpia teléfonos viejos: descarta "Enviar al teléfono" y quita íconos/glifos,
+// dejando solo el número. (Los nuevos ya vienen limpios del scraper.)
+function cleanPhone(raw: string | null): string {
+  if (!raw) return "";
+  const low = raw.toLowerCase();
+  if (low.includes("enviar al tel") || low.includes("send to phone")) return "";
+  const m = raw.match(/[+\d][\d\s().\-]{6,}/);
+  return m ? m[0].trim() : "";
+}
+
 type SortKey =
   | "name"
   | "category"
@@ -46,6 +56,8 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [saving, setSaving] = useState<string | null>(null);
+  const [notesLead, setNotesLead] = useState<Lead | null>(null);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   // ── Realtime: inserts del scraper, ediciones del socio y borrados en vivo ──
   useEffect(() => {
@@ -75,7 +87,6 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
     };
   }, [supabase]);
 
-  // Volver a la página 1 cuando cambian filtros / tamaño
   useEffect(() => {
     setPage(1);
   }, [search, colFilters, pageSize]);
@@ -94,11 +105,19 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
   async function deleteLead(lead: Lead) {
     if (
       !confirm(
-        `¿Eliminar "${lead.name}"?\nEsta acción no se puede deshacer.`
+        `¿Eliminar "${lead.name}"?\nQuedará vetado: el scraper no lo volverá a agregar.`
       )
     )
       return;
     setLeads((prev) => prev.filter((l) => l.business_id !== lead.business_id));
+    // 1) vetar para que el scraper nunca lo reinserte
+    await supabase
+      .from("blocklist")
+      .upsert(
+        { business_id: lead.business_id, name: lead.name },
+        { onConflict: "business_id" }
+      );
+    // 2) borrar de la tabla de leads
     const { error } = await supabase
       .from("leads")
       .delete()
@@ -110,6 +129,11 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
     setColFilters((prev) => ({ ...prev, [key]: val }));
   }
 
+  function clearFilters() {
+    setSearch("");
+    setColFilters({});
+  }
+
   function toggleSort(key: SortKey) {
     setSort((prev) =>
       prev.key === key
@@ -118,7 +142,6 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
     );
   }
 
-  // Categorías distintas para el filtro tipo Excel
   const categories = useMemo(
     () =>
       Array.from(new Set(leads.map((l) => l.category).filter(Boolean))).sort() as string[],
@@ -179,7 +202,6 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
   const start = (current - 1) * pageSize;
   const pageRows = sorted.slice(start, start + pageSize);
 
-  // ── Stats ────────────────────────────────────────────────────────────────────
   const stats = useMemo(
     () => ({
       total: leads.length,
@@ -193,7 +215,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
   return (
     <div className="space-y-4">
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Total leads" value={stats.total} accent="text-white" />
         <Stat label="Sin sitio web" value={stats.sinWeb} accent="text-emerald-400" />
         <Stat label="Prioridad alta" value={stats.alta} accent="text-red-400" />
@@ -201,63 +223,104 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
       </div>
 
       {/* Barra superior */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar en todo…"
-          className="min-w-[220px] flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-indigo-500"
-        />
-        <button
-          onClick={() => {
-            setSearch("");
-            setColFilters({});
-          }}
-          className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
-        >
-          Limpiar filtros
-        </button>
-        <span className="ml-auto text-sm text-slate-400">
-          {total} resultados
-          {saving && <span className="ml-2 text-indigo-400">guardando…</span>}
-        </span>
+      <div className="space-y-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar en todo…"
+            className="min-w-[180px] flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-indigo-500"
+          />
+          <button
+            onClick={clearFilters}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            Limpiar
+          </button>
+          {/* Botón de filtros solo en móvil */}
+          <button
+            onClick={() => setShowMobileFilters((v) => !v)}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800 lg:hidden"
+          >
+            Filtros
+          </button>
+          <span className="ml-auto whitespace-nowrap text-sm text-slate-400">
+            {total} resultados
+            {saving && <span className="ml-2 text-indigo-400">guardando…</span>}
+          </span>
+        </div>
+
+        {/* Filtros para móvil/tablet (en escritorio van bajo cada columna) */}
+        {showMobileFilters && (
+          <div className="grid grid-cols-2 gap-2 lg:hidden">
+            <FilterSelect
+              value={colFilters.category ?? "all"}
+              onChange={(v) => setColFilter("category", v)}
+              label="Categoría"
+              options={[["all", "Todas"], ...categories.map((c) => [c, c] as [string, string])]}
+            />
+            <FilterSelect
+              value={colFilters.web ?? "all"}
+              onChange={(v) => setColFilter("web", v)}
+              label="Web"
+              options={[["all", "Todos"], ["nw", "Sin web"], ["w", "Con web"]]}
+            />
+            <FilterSelect
+              value={colFilters.priority ?? "all"}
+              onChange={(v) => setColFilter("priority", v)}
+              label="Prioridad"
+              options={[["all", "Todas"], ["high", "Alta"], ["medium", "Media"], ["low", "Baja"]]}
+            />
+            <FilterSelect
+              value={colFilters.outreach_status ?? "all"}
+              onChange={(v) => setColFilter("outreach_status", v)}
+              label="Estado"
+              options={[["all", "Todos"], ...OUTREACH_OPTIONS.map((o) => [o, o] as [string, string])]}
+            />
+            <FilterSelect
+              value={colFilters.contacted ?? "all"}
+              onChange={(v) => setColFilter("contacted", v)}
+              label="Contactado"
+              options={[["all", "Todos"], ...CONTACTED_OPTIONS.map((o) => [o, o] as [string, string])]}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Tabla */}
-      <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-900">
-        <table className="w-full text-sm">
+      {/* ── ESCRITORIO: tabla ──────────────────────────────────────────────── */}
+      <div className="hidden overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 lg:block">
+        <table className="w-full min-w-[1180px] text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
-            {/* Fila de encabezados (ordenables) */}
             <tr className="border-b border-slate-800">
               <Th label="Negocio" sortKey="name" sort={sort} onSort={toggleSort} />
               <Th label="Categoría" sortKey="category" sort={sort} onSort={toggleSort} />
-              <th className="px-3 py-2 font-semibold">Teléfono</th>
-              <th className="px-3 py-2 font-semibold">Web</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Teléfono</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Web</th>
               <Th label="Rating" sortKey="rating" sort={sort} onSort={toggleSort} />
               <Th label="Score" sortKey="lead_score" sort={sort} onSort={toggleSort} />
               <Th label="Prioridad" sortKey="priority" sort={sort} onSort={toggleSort} />
               <Th label="Estado" sortKey="outreach_status" sort={sort} onSort={toggleSort} />
               <Th label="Contactado" sortKey="contacted" sort={sort} onSort={toggleSort} />
               <Th label="Seguimiento" sortKey="follow_up" sort={sort} onSort={toggleSort} />
-              <th className="px-3 py-2 font-semibold">Notas</th>
-              <th className="px-3 py-2 font-semibold">Maps</th>
-              <th className="px-3 py-2 font-semibold text-center">Acciones</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Notas</th>
+              <th className="whitespace-nowrap px-3 py-2 font-semibold">Maps</th>
+              <th className="whitespace-nowrap px-3 py-2 text-center font-semibold">Acción</th>
             </tr>
-            {/* Fila de filtros (estilo Excel) */}
+            {/* Fila de filtros estilo Excel */}
             <tr className="border-b border-slate-800 bg-slate-900/60">
               <td className="px-2 py-1.5">
                 <input
                   value={colFilters.name ?? ""}
                   onChange={(e) => setColFilter("name", e.target.value)}
                   placeholder="filtrar…"
-                  className={INPUT + " w-full"}
+                  className={INPUT + " w-full min-w-[120px]"}
                 />
               </td>
               <td className="px-2 py-1.5">
                 <select
                   value={colFilters.category ?? "all"}
                   onChange={(e) => setColFilter("category", e.target.value)}
-                  className={INPUT + " w-full max-w-[160px]"}
+                  className={INPUT + " w-full min-w-[120px]"}
                 >
                   <option value="all">Todas</option>
                   {categories.map((c) => (
@@ -272,14 +335,14 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
                   value={colFilters.phone ?? ""}
                   onChange={(e) => setColFilter("phone", e.target.value)}
                   placeholder="filtrar…"
-                  className={INPUT + " w-full"}
+                  className={INPUT + " w-full min-w-[110px]"}
                 />
               </td>
               <td className="px-2 py-1.5">
                 <select
                   value={colFilters.web ?? "all"}
                   onChange={(e) => setColFilter("web", e.target.value)}
-                  className={INPUT + " w-full"}
+                  className={INPUT + " w-full min-w-[90px]"}
                 >
                   <option value="all">Todos</option>
                   <option value="nw">Sin web</option>
@@ -292,7 +355,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
                 <select
                   value={colFilters.priority ?? "all"}
                   onChange={(e) => setColFilter("priority", e.target.value)}
-                  className={INPUT + " w-full"}
+                  className={INPUT + " w-full min-w-[90px]"}
                 >
                   <option value="all">Todas</option>
                   <option value="high">Alta</option>
@@ -304,7 +367,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
                 <select
                   value={colFilters.outreach_status ?? "all"}
                   onChange={(e) => setColFilter("outreach_status", e.target.value)}
-                  className={INPUT + " w-full"}
+                  className={INPUT + " w-full min-w-[110px]"}
                 >
                   <option value="all">Todos</option>
                   {OUTREACH_OPTIONS.map((o) => (
@@ -318,7 +381,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
                 <select
                   value={colFilters.contacted ?? "all"}
                   onChange={(e) => setColFilter("contacted", e.target.value)}
-                  className={INPUT + " w-full"}
+                  className={INPUT + " w-full min-w-[80px]"}
                 >
                   <option value="all">Todos</option>
                   {CONTACTED_OPTIONS.map((o) => (
@@ -339,10 +402,10 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
               <tr key={l.business_id} className={rowClass(l)}>
                 <td className="px-3 py-2 font-medium text-slate-100">{l.name}</td>
                 <td className="px-3 py-2 text-slate-400">{l.category}</td>
-                <td className="px-3 py-2 whitespace-nowrap">{l.phone || "—"}</td>
+                <td className="whitespace-nowrap px-3 py-2">{cleanPhone(l.phone) || "—"}</td>
                 <td className="px-3 py-2">
                   {l.no_website ? (
-                    <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">
+                    <span className="whitespace-nowrap rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">
                       Sin web
                     </span>
                   ) : (
@@ -356,7 +419,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
                     </a>
                   )}
                 </td>
-                <td className="px-3 py-2 whitespace-nowrap">
+                <td className="whitespace-nowrap px-3 py-2">
                   {l.rating ? `${l.rating}★` : "—"}
                   <span className="text-xs text-slate-500">
                     {l.reviews_count ? ` (${l.reviews_count})` : ""}
@@ -365,7 +428,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
                 <td className="px-3 py-2 font-semibold text-slate-100">{l.lead_score}</td>
                 <td className="px-3 py-2">
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                    className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
                       PRIORITY_STYLES[l.priority] ?? PRIORITY_STYLES.low
                     }`}
                   >
@@ -413,16 +476,15 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
                   />
                 </td>
                 <td className="px-3 py-2">
-                  <input
-                    type="text"
-                    defaultValue={l.notes ?? ""}
-                    onBlur={(e) => {
-                      if (e.target.value !== (l.notes ?? ""))
-                        updateLead(l.business_id, { notes: e.target.value });
-                    }}
-                    placeholder="…"
-                    className={INPUT + " w-40"}
-                  />
+                  <button
+                    onClick={() => setNotesLead(l)}
+                    className="flex max-w-[160px] items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:border-indigo-500"
+                  >
+                    <NoteIcon />
+                    <span className="truncate">
+                      {l.notes ? l.notes : <span className="text-slate-500">agregar</span>}
+                    </span>
+                  </button>
                 </td>
                 <td className="px-3 py-2">
                   {l.maps_url ? (
@@ -441,7 +503,7 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
                 <td className="px-3 py-2 text-center">
                   <button
                     onClick={() => deleteLead(l)}
-                    title="Eliminar lead"
+                    title="Eliminar (vetar)"
                     className="rounded-md p-1.5 text-slate-500 transition hover:bg-red-500/10 hover:text-red-400"
                   >
                     <TrashIcon />
@@ -460,10 +522,28 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
         </table>
       </div>
 
+      {/* ── MÓVIL/TABLET: tarjetas ─────────────────────────────────────────── */}
+      <div className="space-y-3 lg:hidden">
+        {pageRows.map((l) => (
+          <LeadCard
+            key={l.business_id}
+            lead={l}
+            onUpdate={updateLead}
+            onDelete={deleteLead}
+            onNotes={() => setNotesLead(l)}
+          />
+        ))}
+        {pageRows.length === 0 && (
+          <div className="rounded-xl border border-slate-800 bg-slate-900 px-3 py-12 text-center text-slate-500">
+            No hay leads que coincidan con los filtros.
+          </div>
+        )}
+      </div>
+
       {/* Paginación */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800 bg-slate-900 p-3 text-sm text-slate-400">
         <div className="flex items-center gap-2">
-          <span>Filas por página</span>
+          <span className="hidden sm:inline">Filas por página</span>
           <select
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
@@ -476,9 +556,8 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
             ))}
           </select>
         </div>
-        <span className="ml-auto">
-          {total === 0 ? "0" : `${start + 1}–${Math.min(start + pageSize, total)}`} de{" "}
-          {total}
+        <span className="ml-auto whitespace-nowrap">
+          {total === 0 ? "0" : `${start + 1}–${Math.min(start + pageSize, total)}`} de {total}
         </span>
         <div className="flex items-center gap-1">
           <PageBtn onClick={() => setPage(1)} disabled={current === 1}>
@@ -487,8 +566,8 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
           <PageBtn onClick={() => setPage(current - 1)} disabled={current === 1}>
             ‹
           </PageBtn>
-          <span className="px-2 text-slate-300">
-            Página {current} de {totalPages}
+          <span className="whitespace-nowrap px-2 text-slate-300">
+            {current}/{totalPages}
           </span>
           <PageBtn onClick={() => setPage(current + 1)} disabled={current === totalPages}>
             ›
@@ -498,7 +577,207 @@ export default function LeadsTable({ initialLeads }: { initialLeads: Lead[] }) {
           </PageBtn>
         </div>
       </div>
+
+      {/* Modal de notas */}
+      {notesLead && (
+        <NotesModal
+          lead={notesLead}
+          onClose={() => setNotesLead(null)}
+          onSave={(text) => {
+            updateLead(notesLead.business_id, { notes: text });
+            setNotesLead(null);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Tarjeta para móvil/tablet ─────────────────────────────────────────────────
+function LeadCard({
+  lead: l,
+  onUpdate,
+  onDelete,
+  onNotes,
+}: {
+  lead: Lead;
+  onUpdate: (id: string, patch: Partial<Lead>) => void;
+  onDelete: (lead: Lead) => void;
+  onNotes: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-slate-100">{l.name}</div>
+          <div className="truncate text-xs text-slate-400">{l.category}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${
+              PRIORITY_STYLES[l.priority] ?? PRIORITY_STYLES.low
+            }`}
+          >
+            {l.priority}
+          </span>
+          <button
+            onClick={() => onDelete(l)}
+            className="rounded-md p-1.5 text-slate-500 hover:bg-red-500/10 hover:text-red-400"
+          >
+            <TrashIcon />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-300">
+        <span>📞 {cleanPhone(l.phone) || "—"}</span>
+        <span>{l.rating ? `${l.rating}★` : "—"} {l.reviews_count ? `(${l.reviews_count})` : ""}</span>
+        <span className="font-semibold text-slate-100">Score {l.lead_score}</span>
+        {l.no_website ? (
+          <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-300">
+            Sin web
+          </span>
+        ) : (
+          <a href={l.website ?? "#"} target="_blank" rel="noreferrer" className="text-indigo-400">
+            sitio
+          </a>
+        )}
+        {l.maps_url && (
+          <a href={l.maps_url} target="_blank" rel="noreferrer" className="text-indigo-400">
+            maps
+          </a>
+        )}
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <label className="space-y-1">
+          <span className="text-[11px] text-slate-500">Estado</span>
+          <select
+            value={l.outreach_status ?? "pendiente"}
+            onChange={(e) => onUpdate(l.business_id, { outreach_status: e.target.value })}
+            className={INPUT + " w-full"}
+          >
+            {OUTREACH_OPTIONS.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-slate-500">Contactado</span>
+          <select
+            value={l.contacted ?? "no"}
+            onChange={(e) => onUpdate(l.business_id, { contacted: e.target.value })}
+            className={INPUT + " w-full"}
+          >
+            {CONTACTED_OPTIONS.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-slate-500">Seguimiento</span>
+          <input
+            type="date"
+            value={l.follow_up ?? ""}
+            onChange={(e) => onUpdate(l.business_id, { follow_up: e.target.value || null })}
+            className={INPUT + " w-full"}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-slate-500">Notas</span>
+          <button
+            onClick={onNotes}
+            className="flex w-full items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300"
+          >
+            <NoteIcon />
+            <span className="truncate">{l.notes ? l.notes : "agregar"}</span>
+          </button>
+        </label>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal de notas (editor de texto amplio) ───────────────────────────────────
+function NotesModal({
+  lead,
+  onClose,
+  onSave,
+}: {
+  lead: Lead;
+  onClose: () => void;
+  onSave: (text: string) => void;
+}) {
+  const [text, setText] = useState(lead.notes ?? "");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">Notas de</div>
+        <h3 className="mb-3 text-lg font-semibold text-white">{lead.name}</h3>
+        <textarea
+          autoFocus
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={10}
+          placeholder="Escribe aquí notas detalladas: contexto, conversaciones, próximos pasos…"
+          className="w-full resize-y rounded-lg border border-slate-700 bg-slate-800 p-3 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500"
+        />
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => onSave(text)}
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500"
+          >
+            Guardar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterSelect({
+  value,
+  onChange,
+  label,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label: string;
+  options: [string, string][];
+}) {
+  return (
+    <label className="space-y-1">
+      <span className="text-[11px] text-slate-500">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={INPUT + " w-full"}
+      >
+        {options.map(([v, t]) => (
+          <option key={v} value={v}>
+            {t}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -532,7 +811,7 @@ function Th({
 }) {
   const active = sort.key === sortKey;
   return (
-    <th className="px-3 py-2 font-semibold">
+    <th className="whitespace-nowrap px-3 py-2 font-semibold">
       <button
         onClick={() => onSort(sortKey)}
         className={`flex items-center gap-1 transition hover:text-slate-200 ${
@@ -565,6 +844,26 @@ function PageBtn({
     >
       {children}
     </button>
+  );
+}
+
+function NoteIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0"
+    >
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z" />
+    </svg>
   );
 }
 

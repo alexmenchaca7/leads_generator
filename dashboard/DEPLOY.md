@@ -21,8 +21,11 @@ Scraper local (Python)  ──push──►  Supabase (Postgres + Auth + Realtim
    - *Create new project* (tarda ~2 min en aprovisionar).
 3. Cuando esté listo, ve a **SQL Editor** (icono `</>` en la barra izquierda) → **New query**.
 4. Abre el archivo [`supabase/schema.sql`](../supabase/schema.sql) de este repo, **copia todo**,
-   pégalo y dale **Run**. Debe decir *Success*. Esto crea las tablas `leads` y `contacts`,
-   la seguridad y el Realtime.
+   pégalo y dale **Run**. Debe decir *Success*. Esto crea las tablas `leads`, `contacts`
+   y `blocklist` (leads vetados), la seguridad y el Realtime.
+
+   > Si ya habías corrido una versión anterior del esquema (sin `blocklist`),
+   > corre además [`supabase/02_blocklist.sql`](../supabase/02_blocklist.sql) en el SQL Editor.
 
 ### Obtener las llaves
 Ve a **Project Settings** (engrane) → **API**. Copia estos 3 valores:

@@ -96,6 +96,15 @@ class SupabaseSync:
             logger.warning("No se pudo conectar a Supabase: %s", exc)
             return None
 
+    def fetch_blocked_ids(self) -> set[str]:
+        """Devuelve los business_id vetados (borrados a propósito desde el dashboard)."""
+        try:
+            res = self.client.table("blocklist").select("business_id").execute()
+            return {r["business_id"] for r in (res.data or [])}
+        except Exception as exc:
+            logger.warning("No se pudo leer la blocklist: %s", exc)
+            return set()
+
     def push_leads(self, rows: list[dict]) -> int:
         """Inserta leads nuevos (ignora los que ya existen). Devuelve cuántos envió."""
         if not rows:
@@ -116,16 +125,25 @@ class SupabaseSync:
         df = pd.read_excel(str(MASTER_FILE), sheet_name="raw_leads")
         df = df[df["business_id"].notna() & (df["business_id"].astype(str).str.strip() != "")]
 
+        blocked = self.fetch_blocked_ids()
+
         rows = []
+        skipped_blocked = 0
         for _, r in df.iterrows():
             row = {col: _clean_value(col, r.get(col)) for col in _LEAD_COLUMNS}
+            if row["business_id"] in blocked:
+                skipped_blocked += 1
+                continue
             rows.append(row)
 
         # Subir en lotes para no exceder límites de payload
         total = 0
         for i in range(0, len(rows), 500):
             total += self.push_leads(rows[i:i + 500])
-        logger.info("Supabase: %d leads sincronizados desde Excel", total)
+        logger.info(
+            "Supabase: %d leads sincronizados desde Excel (%d vetados omitidos)",
+            total, skipped_blocked,
+        )
         return total
 
 

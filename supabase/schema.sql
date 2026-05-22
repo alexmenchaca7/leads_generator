@@ -112,3 +112,21 @@ create policy "contacts_auth_all" on public.contacts
     to authenticated
     using (true)
     with check (true);
+
+-- ── Blocklist: leads vetados (borrados a propósito desde el dashboard) ───────
+-- El scraper nunca los vuelve a insertar aunque sigan en Google Maps.
+create table if not exists public.blocklist (
+    business_id text primary key,
+    name        text default '',
+    reason      text default 'eliminado desde dashboard',
+    created_at  timestamptz default now()
+);
+
+alter table public.blocklist enable row level security;
+
+drop policy if exists "blocklist_auth_all" on public.blocklist;
+create policy "blocklist_auth_all" on public.blocklist
+    for all
+    to authenticated
+    using (true)
+    with check (true);

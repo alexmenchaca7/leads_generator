@@ -57,6 +57,17 @@ async def run_scrape(args: argparse.Namespace):
     _, known_urls = excel.existing_keys()
     logger.info("Loaded %d known businesses from master file (will be skipped)", len(known_urls))
 
+    # Cargar vetados (borrados desde el dashboard) para no re-scrapearlos.
+    blocked_ids: set[str] = set()
+    try:
+        from src.db import SupabaseSync
+        _sync = SupabaseSync.from_env()
+        if _sync:
+            blocked_ids = _sync.fetch_blocked_ids()
+            logger.info("Loaded %d blocked businesses (vetados) — will be skipped", len(blocked_ids))
+    except Exception as exc:
+        logger.warning("No se pudo cargar la blocklist: %s", exc)
+
     for query in queries:
         logger.info("")
         logger.info("=" * 60)
@@ -64,7 +75,9 @@ async def run_scrape(args: argparse.Namespace):
         logger.info("=" * 60)
 
         try:
-            businesses = await scraper.scrape_query(query, known_urls=known_urls)
+            businesses = await scraper.scrape_query(
+                query, known_urls=known_urls, blocked_ids=blocked_ids
+            )
         except Exception as exc:
             logger.error("Scrape failed for '%s': %s", query, exc, exc_info=True)
             continue

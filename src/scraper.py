@@ -24,7 +24,7 @@ from playwright.async_api import (
 )
 
 from config import SCRAPER_CONFIG
-from src.utils import normalize_url, parse_number
+from src.utils import normalize_url, parse_number, generate_business_id
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,50 @@ async def _try_selectors_attr(page: Page, selectors: list[str], attr: str) -> Op
         except Exception:
             pass
     return None
+
+
+_PHONE_NUM_RE = re.compile(r"[+\d][\d\s().\-]{6,}")
+
+
+async def _extract_phone(page: Page) -> str:
+    """Extrae el teléfono limpio.
+
+    Estrategia:
+      1. Atributo data-item-id="phone:tel:+52..." → número garantizado sin íconos.
+      2. aria-label del botón de teléfono, EXCLUYENDO "Enviar al teléfono"
+         (Send to phone), que no es un número sino la función de Google Maps.
+    Nunca lee inner_text del botón porque incluye el glifo del ícono.
+    """
+    # 1) data-item-id
+    for sel in (
+        'button[data-item-id^="phone:tel:"]',
+        'a[data-item-id^="phone:tel:"]',
+        '[data-item-id^="phone:tel:"]',
+    ):
+        try:
+            el = await page.query_selector(sel)
+            if el:
+                item = await el.get_attribute("data-item-id")
+                if item and "phone:tel:" in item:
+                    return item.split("phone:tel:")[-1].strip()
+        except Exception:
+            pass
+
+    # 2) aria-label numérico (descartando "Enviar al teléfono"/"Send to phone")
+    try:
+        for el in await page.query_selector_all("button[aria-label], a[aria-label]"):
+            label = (await el.get_attribute("aria-label")) or ""
+            low = label.lower()
+            if "teléfono" in low or "telefono" in low or "phone" in low:
+                if "enviar" in low or "send" in low:
+                    continue
+                m = _PHONE_NUM_RE.search(label)
+                if m:
+                    return m.group(0).strip()
+    except Exception:
+        pass
+
+    return ""
 
 
 async def _dismiss_popups(page: Page):
@@ -303,9 +347,8 @@ class GoogleMapsScraper:
         address = await _try_selectors(page, _ADDRESS_SELECTORS)
         data["address"] = (address or "").strip()
 
-        # Phone
-        phone = await _try_selectors(page, _PHONE_SELECTORS)
-        data["phone"] = (phone or "").strip()
+        # Phone (limpio: sin ícono, sin "Enviar al teléfono")
+        data["phone"] = await _extract_phone(page)
 
         # Rating + reviews — scan all aria-labels
         try:
@@ -347,9 +390,15 @@ class GoogleMapsScraper:
 
     # ── Public entry point ────────────────────────────────────────────────────
 
-    async def scrape_query(self, query: str, known_urls: set[str] | None = None) -> list[dict]:
+    async def scrape_query(
+        self,
+        query: str,
+        known_urls: set[str] | None = None,
+        blocked_ids: set[str] | None = None,
+    ) -> list[dict]:
         results: list[dict] = []
         known_urls = known_urls or set()
+        blocked_ids = blocked_ids or set()
 
         async with async_playwright() as pw:
             browser, context = await self._make_context(pw)
@@ -362,13 +411,24 @@ class GoogleMapsScraper:
                 await browser.close()
                 return results
 
-            # Skip businesses already collected in previous runs / earlier queries
-            # so we don't waste time re-visiting place pages we'll discard at save.
-            before = len(pairs)
-            pairs = [(n, f) for (n, f) in pairs if n not in known_urls]
-            skipped = before - len(pairs)
-            if skipped:
-                logger.info("Skipping %d already-known places (dedup before visit)", skipped)
+            # Filtra antes de visitar:
+            #  - ya conocidos (dedup entre runs / queries)
+            #  - vetados (borrados a propósito desde el dashboard)
+            kept = []
+            skipped_known = skipped_blocked = 0
+            for n, f in pairs:
+                if n in known_urls:
+                    skipped_known += 1
+                    continue
+                if blocked_ids and generate_business_id(maps_url=n) in blocked_ids:
+                    skipped_blocked += 1
+                    continue
+                kept.append((n, f))
+            pairs = kept
+            if skipped_known:
+                logger.info("Skipping %d already-known places (dedup before visit)", skipped_known)
+            if skipped_blocked:
+                logger.info("Skipping %d blocked places (vetados)", skipped_blocked)
 
             for idx, (norm_url, full_url) in enumerate(pairs, 1):
                 logger.info("[%d/%d] %s", idx, len(pairs), full_url[:90])

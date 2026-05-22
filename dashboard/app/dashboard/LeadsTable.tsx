@@ -454,7 +454,21 @@ export default function LeadsTable({
 
       {/* ── ESCRITORIO: tabla ──────────────────────────────────────────────── */}
       <div className="hidden overflow-hidden rounded-xl border border-slate-800 bg-slate-900 lg:block">
-        <table className="w-full table-auto text-sm">
+        <table className="w-full table-fixed text-sm">
+          <colgroup>
+            <col style={{ width: "3%" }} />
+            <col style={{ width: "17%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "11%" }} />
+            <col style={{ width: "6%" }} />
+          </colgroup>
           <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
             <tr className="border-b border-slate-800">
               <th className="px-2 py-2">
@@ -467,16 +481,16 @@ export default function LeadsTable({
                 />
               </th>
               <Th label="Negocio" sortKey="name" sort={sort} onSort={toggleSort} />
-              <th className="whitespace-nowrap px-2 py-2 font-semibold">Teléfono</th>
+              <th className="px-2 py-2 font-semibold">Teléfono</th>
               <Th label="Rating" sortKey="rating" sort={sort} onSort={toggleSort} />
               <Th label="Score" sortKey="lead_score" sort={sort} onSort={toggleSort} />
-              <Th label="Prior." sortKey="priority" sort={sort} onSort={toggleSort} />
+              <Th label="Prioridad" sortKey="priority" sort={sort} onSort={toggleSort} />
               <Th label="Estado" sortKey="outreach_status" sort={sort} onSort={toggleSort} />
-              <Th label="Seguim." sortKey="follow_up" sort={sort} onSort={toggleSort} />
+              <Th label="Seguimiento" sortKey="follow_up" sort={sort} onSort={toggleSort} />
               <Th label="Visto" sortKey="last_seen" sort={sort} onSort={toggleSort} />
-              <th className="whitespace-nowrap px-2 py-2 font-semibold">Web</th>
-              <th className="whitespace-nowrap px-2 py-2 font-semibold">Notas</th>
-              <th className="whitespace-nowrap px-2 py-2 text-center font-semibold">Acc.</th>
+              <th className="px-2 py-2 font-semibold">Web</th>
+              <th className="px-2 py-2 font-semibold">Notas</th>
+              <th className="px-2 py-2 text-center font-semibold">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/70 text-slate-300">
@@ -514,7 +528,7 @@ export default function LeadsTable({
                   </select>
                 </td>
                 <td className="px-2 py-2">
-                  <DateField value={l.follow_up} onChange={(v) => updateLead(l.business_id, { follow_up: v })} />
+                  <DateField value={l.follow_up} onChange={(v) => updateLead(l.business_id, { follow_up: v })} className="w-full" />
                 </td>
                 <td className="whitespace-nowrap px-2 py-2 text-[11px] text-slate-500">
                   <div>1ª {l.first_seen ?? "—"}</div>
@@ -768,7 +782,7 @@ function LeadCard({
           <span className="text-[11px] text-slate-500">Seguimiento</span>
           <DateField value={l.follow_up} onChange={(v) => onUpdate(l.business_id, { follow_up: v })} className="w-full" />
         </label>
-        <label className="space-y-1">
+        <label className="col-span-2 space-y-1">
           <span className="text-[11px] text-slate-500">Notas</span>
           <button onClick={onNotes} className="flex w-full items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-300">
             <NoteIcon />

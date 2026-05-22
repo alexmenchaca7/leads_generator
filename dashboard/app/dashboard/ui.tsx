@@ -87,7 +87,7 @@ export function DateField({
         type="date"
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
-        className={`${has ? "has-value " : ""}w-full min-w-[130px] rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 outline-none focus:border-indigo-500`}
+        className={`${has ? "has-value " : ""}w-full min-w-[104px] rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-sm text-slate-200 outline-none focus:border-indigo-500`}
       />
       {!has && (
         <span className="pointer-events-none absolute left-2 text-xs text-slate-500">

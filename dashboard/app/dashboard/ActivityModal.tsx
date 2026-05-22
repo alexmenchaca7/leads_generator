@@ -13,10 +13,15 @@ type ActivityRow = {
   action: string; // update | create | delete | recover
   business_id: string | null;
   business_name: string | null;
-  changes: Record<string, Change> | null;
+  changes: Record<string, unknown> | null;
   undone: boolean;
   created_at: string;
 };
+
+function bulkIds(row: ActivityRow): string[] {
+  const ids = row.changes?.bulk_ids;
+  return Array.isArray(ids) ? (ids as string[]) : [];
+}
 
 const FIELD_LABELS: Record<string, string> = {
   outreach_status: "Estado",
@@ -98,38 +103,43 @@ export default function ActivityModal({
     };
   }, [supabase, load]);
 
+  async function recoverFromBlocklist(id: string) {
+    const { data } = await supabase
+      .from("blocklist")
+      .select("data")
+      .eq("business_id", id)
+      .maybeSingle();
+    const lead = (data?.data ?? null) as Record<string, unknown> | null;
+    if (lead) {
+      delete lead.updated_at;
+      await supabase.from("leads").upsert(lead as Partial<Lead>, { onConflict: "business_id" });
+      await supabase.from("blocklist").delete().eq("business_id", id);
+    }
+  }
+
   async function undo(row: ActivityRow) {
-    if (!row.business_id) return;
     setBusy(row.id);
     try {
-      if (row.action === "update" && row.changes) {
+      if (row.action === "update" && row.business_id && row.changes) {
         const patch: Record<string, unknown> = {};
-        for (const [field, ch] of Object.entries(row.changes)) patch[field] = ch.old;
+        for (const [field, ch] of Object.entries(row.changes))
+          patch[field] = (ch as Change).old;
         const { error } = await supabase
           .from("leads")
           .update(patch as Partial<Lead>)
           .eq("business_id", row.business_id);
         if (error) throw error;
-      } else if (row.action === "create") {
+      } else if (row.action === "create" && row.business_id) {
         const { error } = await supabase
           .from("leads")
           .delete()
           .eq("business_id", row.business_id);
         if (error) throw error;
       } else if (row.action === "delete") {
-        const { data } = await supabase
-          .from("blocklist")
-          .select("data")
-          .eq("business_id", row.business_id)
-          .maybeSingle();
-        const lead = (data?.data ?? null) as Record<string, unknown> | null;
-        if (lead) {
-          delete lead.updated_at;
-          await supabase.from("leads").upsert(lead as Partial<Lead>, {
-            onConflict: "business_id",
-          });
-          await supabase.from("blocklist").delete().eq("business_id", row.business_id);
-        }
+        // Individual o masivo (bulk_ids): recupera todos.
+        const ids = bulkIds(row);
+        const all = ids.length ? ids : row.business_id ? [row.business_id] : [];
+        for (const id of all) await recoverFromBlocklist(id);
       } else {
         setBusy(null);
         return;
@@ -143,8 +153,12 @@ export default function ActivityModal({
     setBusy(null);
   }
 
-  const canUndo = (r: ActivityRow) =>
-    !r.undone && ["update", "create", "delete"].includes(r.action);
+  const canUndo = (r: ActivityRow) => {
+    if (r.undone) return false;
+    if (r.action === "update" || r.action === "create") return !!r.business_id;
+    if (r.action === "delete") return !!r.business_id || bulkIds(r).length > 0;
+    return false;
+  };
 
   return (
     <Modal onClose={onClose} size="xl">
@@ -180,15 +194,18 @@ export default function ActivityModal({
 
                   {r.action === "update" && r.changes && (
                     <ul className="mt-1 space-y-0.5">
-                      {Object.entries(r.changes).map(([field, ch]) => (
-                        <li key={field} className="text-xs text-slate-400">
-                          <span className="text-slate-500">
-                            {FIELD_LABELS[field] ?? field}:
-                          </span>{" "}
-                          {show(ch.old)} <span className="text-slate-600">→</span>{" "}
-                          <span className="text-slate-300">{show(ch.new)}</span>
-                        </li>
-                      ))}
+                      {Object.entries(r.changes).map(([field, raw]) => {
+                        const ch = raw as Change;
+                        return (
+                          <li key={field} className="text-xs text-slate-400">
+                            <span className="text-slate-500">
+                              {FIELD_LABELS[field] ?? field}:
+                            </span>{" "}
+                            {show(ch.old)} <span className="text-slate-600">→</span>{" "}
+                            <span className="text-slate-300">{show(ch.new)}</span>
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
 

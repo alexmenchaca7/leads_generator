@@ -60,6 +60,8 @@ export default function LeadsTable({
   const [showBlocklist, setShowBlocklist] = useState(false);
   const [showActivity, setShowActivity] = useState(false);
   const [blockedCount, setBlockedCount] = useState(0);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkConfirm, setBulkConfirm] = useState<{ ids: string[]; label: string } | null>(null);
 
   function notify(msg: string, type: "success" | "error" = "success") {
     const id = Date.now() + Math.random();
@@ -70,9 +72,9 @@ export default function LeadsTable({
   // Registra un cambio en el log de actividad (auditoría compartida).
   async function logActivity(
     action: "update" | "create" | "delete" | "recover",
-    business_id: string,
+    business_id: string | null,
     business_name: string,
-    changes: Record<string, { old: unknown; new: unknown }> | null
+    changes: Record<string, unknown> | null
   ) {
     await supabase.from("activity_log").insert({
       user_email: userEmail,
@@ -198,6 +200,45 @@ export default function LeadsTable({
     setBlockedCount((c) => Math.max(0, c - 1));
   }
 
+  // ── Selección múltiple ───────────────────────────────────────────────────────
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  // ── Vetado masivo ────────────────────────────────────────────────────────────
+  async function performBulkVeto(ids: string[]) {
+    setBulkConfirm(null);
+    const toVeto = leads.filter((l) => ids.includes(l.business_id));
+    if (toVeto.length === 0) return;
+
+    setLeads((prev) => prev.filter((l) => !ids.includes(l.business_id)));
+    clearSelection();
+
+    // Guarda copia de cada uno para poder recuperarlos.
+    const rows = toVeto.map((l) => ({
+      business_id: l.business_id,
+      name: l.name,
+      data: l,
+    }));
+    await supabase.from("blocklist").upsert(rows, { onConflict: "business_id" });
+
+    const vetoedIds = toVeto.map((l) => l.business_id);
+    const { error } = await supabase.from("leads").delete().in("business_id", vetoedIds);
+    if (error) return notify("No se pudieron vetar: " + error.message, "error");
+
+    notify(`✓ ${toVeto.length} negocios vetados`);
+    setBlockedCount((c) => c + toVeto.length);
+    logActivity("delete", null, `${toVeto.length} negocios`, { bulk_ids: vetoedIds });
+  }
+
   function setColFilter(key: string, val: string) {
     setColFilters((prev) => ({ ...prev, [key]: val }));
   }
@@ -265,6 +306,20 @@ export default function LeadsTable({
 
   function changePage(p: number) {
     setPage(Math.min(Math.max(1, p), totalPages));
+  }
+
+  // Selección de la página actual / de todo el conjunto filtrado
+  const pageAllSelected = pageRows.length > 0 && pageRows.every((l) => selected.has(l.business_id));
+  function toggleSelectPage() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (pageAllSelected) pageRows.forEach((l) => next.delete(l.business_id));
+      else pageRows.forEach((l) => next.add(l.business_id));
+      return next;
+    });
+  }
+  function selectAllFiltered() {
+    setSelected(new Set(sorted.map((l) => l.business_id)));
   }
 
   // Sube al inicio cada vez que cambia la página (instantáneo y confiable:
@@ -354,11 +409,54 @@ export default function LeadsTable({
         )}
       </div>
 
+      {/* Barra de acciones masivas */}
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-indigo-500/40 bg-indigo-500/10 p-3 text-sm">
+          <span className="font-medium text-indigo-200">
+            {selected.size} seleccionado{selected.size !== 1 ? "s" : ""}
+          </span>
+          {selected.size < sorted.length && (
+            <button
+              onClick={selectAllFiltered}
+              className="rounded-lg border border-indigo-500/40 px-3 py-1.5 text-indigo-200 hover:bg-indigo-500/20"
+            >
+              Seleccionar los {sorted.length} filtrados
+            </button>
+          )}
+          <button
+            onClick={() =>
+              setBulkConfirm({
+                ids: Array.from(selected),
+                label: `${selected.size} negocio${selected.size !== 1 ? "s" : ""}`,
+              })
+            }
+            className="rounded-lg bg-red-600 px-3 py-1.5 font-semibold text-white hover:bg-red-500"
+          >
+            Vetar selección
+          </button>
+          <button
+            onClick={clearSelection}
+            className="ml-auto rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800"
+          >
+            Limpiar selección
+          </button>
+        </div>
+      )}
+
       {/* ── ESCRITORIO: tabla ──────────────────────────────────────────────── */}
       <div className="hidden overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 lg:block">
-        <table className="w-full min-w-[1220px] text-sm">
+        <table className="w-full min-w-[1260px] text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
             <tr className="border-b border-slate-800">
+              <th className="px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={pageAllSelected}
+                  onChange={toggleSelectPage}
+                  className="h-4 w-4 rounded border-slate-600 bg-slate-800 accent-indigo-600"
+                  title="Seleccionar página"
+                />
+              </th>
               <Th label="Negocio" sortKey="name" sort={sort} onSort={toggleSort} />
               <Th label="Categoría" sortKey="category" sort={sort} onSort={toggleSort} />
               <th className="whitespace-nowrap px-3 py-2 font-semibold">Teléfono</th>
@@ -374,6 +472,7 @@ export default function LeadsTable({
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold">Acciones</th>
             </tr>
             <tr className="border-b border-slate-800 bg-slate-900/60">
+              <td className="px-2 py-1.5" />
               <td className="px-2 py-1.5">
                 <input value={colFilters.name ?? ""} onChange={(e) => setColFilter("name", e.target.value)} placeholder="filtrar…" className={INPUT + " w-full min-w-[120px]"} />
               </td>
@@ -419,7 +518,18 @@ export default function LeadsTable({
           </thead>
           <tbody className="divide-y divide-slate-800/70 text-slate-300">
             {pageRows.map((l) => (
-              <tr key={l.business_id} className={rowClass(l)}>
+              <tr
+                key={l.business_id}
+                className={`${rowClass(l)} ${selected.has(l.business_id) ? "bg-indigo-500/10" : ""}`}
+              >
+                <td className="px-3 py-2">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(l.business_id)}
+                    onChange={() => toggleOne(l.business_id)}
+                    className="h-4 w-4 rounded border-slate-600 bg-slate-800 accent-indigo-600"
+                  />
+                </td>
                 <td className="px-3 py-2 font-medium text-slate-100">{l.name}</td>
                 <td className="px-3 py-2 text-slate-400">{l.category}</td>
                 <td className="whitespace-nowrap px-3 py-2">
@@ -478,7 +588,7 @@ export default function LeadsTable({
               </tr>
             ))}
             {pageRows.length === 0 && (
-              <tr><td colSpan={13} className="px-3 py-12 text-center text-slate-500">No hay leads que coincidan con los filtros.</td></tr>
+              <tr><td colSpan={14} className="px-3 py-12 text-center text-slate-500">No hay leads que coincidan con los filtros.</td></tr>
             )}
           </tbody>
         </table>
@@ -490,6 +600,8 @@ export default function LeadsTable({
           <LeadCard
             key={l.business_id}
             lead={l}
+            selected={selected.has(l.business_id)}
+            onToggleSelect={() => toggleOne(l.business_id)}
             onUpdate={updateLead}
             onDelete={() => setConfirmLead(l)}
             onEdit={() => setEditState({ mode: "edit", lead: l })}
@@ -563,6 +675,33 @@ export default function LeadsTable({
           onConfirm={() => performDelete(confirmLead)}
         />
       )}
+      {bulkConfirm && (
+        <Modal onClose={() => setBulkConfirm(null)} size="sm">
+          <div className="p-6">
+            <h3 className="mb-2 text-lg font-semibold text-white">
+              ¿Vetar {bulkConfirm.label}?
+            </h3>
+            <p className="mb-5 text-sm text-slate-400">
+              Se quitarán del tablero y el scraper no los volverá a agregar. Podrás
+              recuperarlos después desde <span className="text-slate-200">Vetados</span>.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setBulkConfirm(null)}
+                className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => performBulkVeto(bulkConfirm.ids)}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
+              >
+                Sí, vetar {bulkConfirm.ids.length}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Toasts */}
       <div className="pointer-events-none fixed bottom-4 right-4 z-[60] space-y-2">
@@ -584,23 +723,39 @@ export default function LeadsTable({
 // ── Tarjeta móvil ──────────────────────────────────────────────────────────────
 function LeadCard({
   lead: l,
+  selected,
+  onToggleSelect,
   onUpdate,
   onDelete,
   onEdit,
   onNotes,
 }: {
   lead: Lead;
+  selected: boolean;
+  onToggleSelect: () => void;
   onUpdate: (id: string, patch: Partial<Lead>) => void;
   onDelete: () => void;
   onEdit: () => void;
   onNotes: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+    <div
+      className={`rounded-xl border bg-slate-900 p-4 ${
+        selected ? "border-indigo-500/60 ring-1 ring-indigo-500/40" : "border-slate-800"
+      }`}
+    >
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate font-semibold text-slate-100">{l.name}</div>
-          <div className="truncate text-xs text-slate-400">{l.category}</div>
+        <div className="flex min-w-0 items-start gap-2">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            className="mt-1 h-4 w-4 shrink-0 rounded border-slate-600 bg-slate-800 accent-indigo-600"
+          />
+          <div className="min-w-0">
+            <div className="truncate font-semibold text-slate-100">{l.name}</div>
+            <div className="truncate text-xs text-slate-400">{l.category}</div>
+          </div>
         </div>
         <div className="flex items-center gap-1">
           <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${PRIORITY_STYLES[l.priority] ?? PRIORITY_STYLES.low}`}>{l.priority}</span>

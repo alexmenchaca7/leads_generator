@@ -69,18 +69,53 @@ export default function BlocklistModal({
     setBusy(null);
   }
 
+  async function recoverAll() {
+    if (!confirm(`¿Recuperar los ${rows.length} negocios vetados?`)) return;
+    setBusy("__all__");
+    for (const row of [...rows]) {
+      if (row.data) {
+        const lead: Record<string, unknown> = { ...row.data };
+        delete lead.updated_at;
+        await supabase.from("leads").upsert(lead, { onConflict: "business_id" });
+        onRecovered(row.data);
+      }
+      await supabase.from("blocklist").delete().eq("business_id", row.business_id);
+      await supabase.from("activity_log").insert({
+        user_email: userEmail,
+        action: "recover",
+        business_id: row.business_id,
+        business_name: row.name ?? "",
+        changes: null,
+      });
+    }
+    setRows([]);
+    notify("✓ Todos recuperados");
+    setBusy(null);
+  }
+
   return (
     <Modal onClose={onClose} size="lg">
-      <div className="flex shrink-0 items-center justify-between border-b border-slate-800 px-5 py-4">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800 px-5 py-4">
         <h3 className="text-lg font-semibold text-white">
           Negocios vetados {rows.length > 0 && `(${rows.length})`}
         </h3>
-        <button
-          onClick={onClose}
-          className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
-        >
-          Cerrar
-        </button>
+        <div className="flex items-center gap-2">
+          {rows.length > 1 && (
+            <button
+              onClick={recoverAll}
+              disabled={busy === "__all__"}
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+            >
+              {busy === "__all__" ? "…" : "Recuperar todos"}
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-300 hover:bg-slate-800"
+          >
+            Cerrar
+          </button>
+        </div>
       </div>
 
       <div className="overflow-y-auto overscroll-contain px-5 py-2">

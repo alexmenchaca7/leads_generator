@@ -12,6 +12,21 @@ body {
   color-scheme: dark; /* selects, date pickers y scrollbars nativas en oscuro */
 }
 
+/* Inputs de fecha consistentes en iOS/Safari (tamaño uniforme y oculta el
+   texto nativo cuando están vacíos para mostrar nuestro placeholder) */
+input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 30px;
+}
+input[type="date"]:not(.has-value)::-webkit-datetime-edit {
+  color: transparent;
+}
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
 /* Scrollbar oscura */
 ::-webkit-scrollbar {
   width: 10px;

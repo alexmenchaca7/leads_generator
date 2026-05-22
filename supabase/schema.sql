@@ -119,8 +119,10 @@ create table if not exists public.blocklist (
     business_id text primary key,
     name        text default '',
     reason      text default 'eliminado desde dashboard',
+    data        jsonb,                       -- copia del lead para poder recuperarlo
     created_at  timestamptz default now()
 );
+alter table public.blocklist add column if not exists data jsonb;
 
 alter table public.blocklist enable row level security;
 

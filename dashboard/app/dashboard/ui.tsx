@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
 // ── Modal reutilizable ─────────────────────────────────────────────────────────
@@ -21,13 +22,38 @@ export function Modal({
   children: React.ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
+  // Bloquea el scroll del fondo SIN saltar al inicio: fija el <body> en su
+  // posición actual (técnica estándar para iOS, donde overflow:hidden en <html>
+  // resetea el scroll). Al cerrar restaura la posición exacta.
+  useEffect(() => {
+    const scrollY = window.scrollY;
+    const { body } = document;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      left: body.style.left,
+      right: body.style.right,
+      width: body.style.width,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.left = "0";
+    body.style.right = "0";
+    body.style.width = "100%";
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.left = prev.left;
+      body.style.right = prev.right;
+      body.style.width = prev.width;
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
   if (typeof document === "undefined") return null;
 
   // Portal a <body>: el overlay escapa de cualquier contenedor con transform/
-  // filter y siempre cubre la pantalla completa. No bloqueamos el scroll del
-  // fondo con overflow:hidden porque Safari/iOS resetean el scroll al tope
-  // (mandaba la página al inicio al abrir). El overlay fijo ya cubre todo y
-  // overscroll-contain evita que el scroll interno se encadene al fondo.
+  // filter y siempre cubre la pantalla completa.
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"

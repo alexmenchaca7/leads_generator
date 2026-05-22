@@ -1,0 +1,38 @@
+# ── Datos generados (leads scrapeados, snapshots) ──────────────────────────────
+data/
+logs/
+
+# ── Python ─────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Entornos virtuales ─────────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Secretos / configuración local ─────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── Playwright ─────────────────────────────────────────────────────────────────
+playwright-report/
+.playwright/
+
+# ── Excel temporales / lock ────────────────────────────────────────────────────
+*.tmp.xlsx
+~$*.xlsx
+
+# ── Editores / SO ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

@@ -20,7 +20,7 @@ ENV/
 # ── Secretos / configuración local ─────────────────────────────────────────────
 .env
 .env.*
-!.env.example
+!.env*.example
 
 # ── Playwright ─────────────────────────────────────────────────────────────────
 playwright-report/

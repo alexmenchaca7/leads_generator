@@ -49,3 +49,15 @@ PRIORITY_THRESHOLDS = {
     "high":   60,
     "medium": 35,
 }
+
+# ── Excel dropdown options (data validation) ────────────────────────────────────
+# Listas desplegables que aparecen en las columnas manuales del Excel.
+# Edita los valores aquí y se aplicarán en el próximo guardado o `--mode refresh`.
+DROPDOWN_OPTIONS = {
+    # raw_leads
+    "outreach_status": ["pendiente", "contactado", "no contestó",
+                        "interesado", "no interesado", "cliente"],
+    "contacted":       ["sí", "no"],
+    # contacted
+    "deal_status":     ["prospecto", "negociando", "ganado", "perdido"],
+}

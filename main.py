@@ -88,6 +88,18 @@ async def run_scrape(args: argparse.Namespace):
     if args.snapshot and all_new:
         excel.save_snapshot(all_new)
 
+    # Sincronizar con el dashboard online (Supabase). Opcional: si no hay .env,
+    # se omite y el sistema sigue funcionando solo con Excel.
+    try:
+        from src.db import SupabaseSync
+        sync = SupabaseSync.from_env()
+        if sync:
+            sync.sync_all_from_excel()
+        else:
+            logger.info("Supabase no configurado (sin .env) — omitiendo sync online")
+    except Exception as exc:
+        logger.error("Fallo sincronizando con Supabase: %s", exc, exc_info=True)
+
     # Summary
     no_web = sum(1 for b in all_new if not (b.get("website") or "").strip())
     logger.info("")

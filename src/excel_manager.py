@@ -9,12 +9,22 @@ import pandas as pd
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
-from config import MASTER_FILE, RUNS_DIR
+from config import MASTER_FILE, RUNS_DIR, DROPDOWN_OPTIONS
 from src.lead_scoring import calculate_score
 from src.utils import generate_business_id, normalize_url
 
 logger = logging.getLogger(__name__)
+
+# Manual-only sheet logging contact history (system never writes data rows here)
+CONTACTED_COLUMNS = [
+    "business_id", "name", "phone", "contacted_date",
+    "response", "next_action", "deal_status", "notes",
+]
+
+# Rows to cover with dropdowns so manually-added / future-scraped rows inherit them
+_DROPDOWN_LAST_ROW = 5000
 
 # ── Column order for raw_leads ─────────────────────────────────────────────────
 COLUMNS = [
@@ -124,6 +134,7 @@ def _create_new_workbook() -> Workbook:
     ws_raw = wb.active
     ws_raw.title = "raw_leads"
     _write_headers(ws_raw)
+    _apply_dropdowns(ws_raw, COLUMNS)
 
     ws_no_web = wb.create_sheet("no_website_leads")
     _write_headers(ws_no_web)
@@ -133,13 +144,37 @@ def _create_new_workbook() -> Workbook:
 
     # contacted sheet — manual only, system never writes here
     ws_c = wb.create_sheet("contacted")
-    contacted_cols = [
-        "business_id", "name", "phone", "contacted_date",
-        "response", "next_action", "deal_status", "notes",
-    ]
-    _write_headers(ws_c, contacted_cols)
+    _write_headers(ws_c, CONTACTED_COLUMNS)
+    _apply_dropdowns(ws_c, CONTACTED_COLUMNS)
 
     return wb
+
+
+def _apply_dropdowns(ws, columns: list[str]):
+    """Attach list-validation dropdowns to any column in this sheet that has
+    options defined in DROPDOWN_OPTIONS. Re-applied on every save, so we clear
+    existing validations first to avoid accumulating duplicates across runs.
+    """
+    ws.data_validations.dataValidation = []  # reset
+
+    for col_name, options in DROPDOWN_OPTIONS.items():
+        if col_name not in columns:
+            continue
+        col_letter = get_column_letter(columns.index(col_name) + 1)
+        # Excel list formula: comma-separated values wrapped in quotes.
+        formula = '"' + ",".join(options) + '"'
+        dv = DataValidation(
+            type="list",
+            formula1=formula,
+            allow_blank=True,
+            showErrorMessage=True,
+        )
+        dv.errorTitle = "Valor no permitido"
+        dv.error      = "Elige uno de los valores de la lista."
+        dv.promptTitle = col_name
+        dv.prompt      = "Selecciona un valor de la lista."
+        dv.add(f"{col_letter}2:{col_letter}{_DROPDOWN_LAST_ROW}")
+        ws.add_data_validation(dv)
 
 
 def _row_fill(no_website: bool, priority: str):
@@ -192,11 +227,8 @@ class ExcelManager:
                 _write_headers(ws)
         if "contacted" not in wb.sheetnames:
             ws = wb.create_sheet("contacted")
-            contacted_cols = [
-                "business_id", "name", "phone", "contacted_date",
-                "response", "next_action", "deal_status", "notes",
-            ]
-            _write_headers(ws, contacted_cols)
+            _write_headers(ws, CONTACTED_COLUMNS)
+            _apply_dropdowns(ws, CONTACTED_COLUMNS)
 
     # ── Deduplication ──────────────────────────────────────────────────────────
 
@@ -263,6 +295,12 @@ class ExcelManager:
         ws.auto_filter.ref = ws.dimensions
         logger.info("Compacted raw_leads → %d rows (removed empty gaps)", len(kept))
 
+    def _ensure_dropdowns(self, wb: Workbook):
+        """(Re)apply the list-validation dropdowns to the editable sheets."""
+        _apply_dropdowns(wb["raw_leads"], COLUMNS)
+        if "contacted" in wb.sheetnames:
+            _apply_dropdowns(wb["contacted"], CONTACTED_COLUMNS)
+
     def save_new_businesses(self, businesses: list[dict]) -> tuple[int, int]:
         """Append new businesses to raw_leads and refresh filtered sheets.
 
@@ -313,6 +351,7 @@ class ExcelManager:
             new_count += 1
 
         self._refresh_filtered_sheets(wb)
+        self._ensure_dropdowns(wb)
         _safe_save(wb, MASTER_FILE)
         logger.info("Saved %d new | %d duplicates skipped → %s", new_count, dup_count, MASTER_FILE)
         return new_count, dup_count
@@ -326,6 +365,7 @@ class ExcelManager:
         self._ensure_sheets(wb)
         self._compact_raw(wb)
         self._refresh_filtered_sheets(wb)
+        self._ensure_dropdowns(wb)
         _safe_save(wb, MASTER_FILE)
         logger.info("Filtered sheets refreshed.")
 

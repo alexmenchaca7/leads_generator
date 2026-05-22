@@ -26,8 +26,9 @@ Scraper local (Python)  ──push──►  Supabase (Postgres + Auth + Realtim
 
    > Si ya habías corrido una versión anterior del esquema, corre además en el
    > SQL Editor: [`supabase/02_blocklist.sql`](../supabase/02_blocklist.sql)
-   > (leads vetados) y [`supabase/03_activity.sql`](../supabase/03_activity.sql)
-   > (historial de cambios).
+   > (leads vetados), [`supabase/03_activity.sql`](../supabase/03_activity.sql)
+   > (historial de cambios) y [`supabase/04_scrape.sql`](../supabase/04_scrape.sql)
+   > (búsquedas desde el dashboard).
 
 ### Obtener las llaves
 Ve a **Project Settings** (engrane) → **API**. Copia estos 3 valores:
@@ -100,10 +101,26 @@ Esos serán los logins del dashboard. Para quitarle acceso a alguien, borras su 
 
 ---
 
+## Buscar negocios desde el dashboard (worker)
+
+Puedes lanzar búsquedas desde el dashboard (incluso desde el celular) en vez de
+correr `python main.py` a mano. Para eso, deja corriendo el **worker** en tu PC:
+
+```powershell
+python -m src.worker
+```
+
+- Déjalo abierto: queda escuchando. Cuando creas una búsqueda en la página
+  **"+ Buscar negocios"** del dashboard, el worker la ejecuta **sin abrir navegador**
+  y sube los resultados (se ven solos en el Dashboard).
+- La página de búsqueda muestra si el worker está **conectado** y el estado de cada
+  búsqueda (en cola → buscando → listo).
+- Tu PC debe estar encendida con el worker corriendo (ahí vive el navegador del scraper).
+
 ## Cómo funciona el día a día
 
-- **Scrapear**: corres `python main.py` en tu PC → leads nuevos aparecen en el dashboard
-  **en vivo** (sin recargar), gracias a Realtime.
+- **Scrapear**: lanza búsquedas desde el dashboard (con el worker corriendo) o corre
+  `python main.py` en tu PC → los leads nuevos aparecen en el dashboard **en vivo**.
 - **Trabajar leads**: tú y tu socio editan desde el dashboard (estado, contactado,
   seguimiento, notas). Los cambios se guardan al instante y los ve el otro en vivo.
 - **El scraper nunca pisa sus ediciones**: al sincronizar solo inserta leads nuevos;

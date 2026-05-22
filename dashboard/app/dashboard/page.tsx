@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type { Lead } from "@/types";
+import Link from "next/link";
 import LeadsTable from "./LeadsTable";
 import SignOutButton from "./SignOutButton";
 import IdleTimeout from "./IdleTimeout";
@@ -28,6 +29,12 @@ export default async function DashboardPage() {
         </div>
         <div className="flex items-center gap-3">
           <OnlineUsers userEmail={userEmail} />
+          <Link
+            href="/scrape"
+            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500"
+          >
+            + Buscar negocios
+          </Link>
           <SignOutButton />
         </div>
       </header>

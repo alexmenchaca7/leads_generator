@@ -304,7 +304,7 @@ class ExcelManager:
     def save_new_businesses(self, businesses: list[dict]) -> tuple[int, int]:
         """Append new businesses to raw_leads and refresh filtered sheets.
 
-        Returns (new_count, duplicate_count).
+        Returns a dict: {new_count, dup_count, new_names, dup_names}.
         """
         wb = self._load_or_create()
         self._ensure_sheets(wb)
@@ -314,6 +314,8 @@ class ExcelManager:
         existing_ids, existing_urls = self._load_existing()
         now = datetime.now().strftime("%Y-%m-%d")
         new_count = dup_count = 0
+        new_names: list[str] = []
+        dup_names: list[str] = []
 
         for biz in businesses:
             # La URL real (con /data=<CID>) es el link al negocio; SOLO la
@@ -329,6 +331,7 @@ class ExcelManager:
             # Dedup check
             if (norm and norm in existing_urls) or biz_id in existing_ids:
                 dup_count += 1
+                dup_names.append(biz.get("name", ""))
                 continue
 
             # Enrich (conserva el link real completo)
@@ -352,12 +355,18 @@ class ExcelManager:
             existing_ids.add(biz_id)
             existing_urls.add(norm)
             new_count += 1
+            new_names.append(biz.get("name", ""))
 
         self._refresh_filtered_sheets(wb)
         self._ensure_dropdowns(wb)
         _safe_save(wb, MASTER_FILE)
         logger.info("Saved %d new | %d duplicates skipped → %s", new_count, dup_count, MASTER_FILE)
-        return new_count, dup_count
+        return {
+            "new_count": new_count,
+            "dup_count": dup_count,
+            "new_names": new_names,
+            "dup_names": dup_names,
+        }
 
     def refresh_views(self):
         """Rebuild no_website_leads and high_priority from raw_leads without adding data."""

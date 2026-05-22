@@ -29,7 +29,8 @@ function rowClass(lead: Lead): string {
 
 type SortKey =
   | "name" | "category" | "rating" | "reviews_count" | "lead_score"
-  | "priority" | "outreach_status" | "contacted" | "follow_up";
+  | "priority" | "outreach_status" | "contacted" | "follow_up"
+  | "first_seen" | "last_seen";
 
 type Toast = { id: number; msg: string; type: "success" | "error" };
 
@@ -456,7 +457,7 @@ export default function LeadsTable({
 
       {/* ── ESCRITORIO: tabla ──────────────────────────────────────────────── */}
       <div className="hidden overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 lg:block">
-        <table className="w-full min-w-[1260px] text-sm">
+        <table className="w-full min-w-[1440px] text-sm">
           <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
             <tr className="border-b border-slate-800">
               <th className="px-3 py-2">
@@ -478,6 +479,8 @@ export default function LeadsTable({
               <Th label="Estado" sortKey="outreach_status" sort={sort} onSort={toggleSort} />
               <Th label="Contactado" sortKey="contacted" sort={sort} onSort={toggleSort} />
               <Th label="Seguimiento" sortKey="follow_up" sort={sort} onSort={toggleSort} />
+              <Th label="Primera vez" sortKey="first_seen" sort={sort} onSort={toggleSort} />
+              <Th label="Última vez" sortKey="last_seen" sort={sort} onSort={toggleSort} />
               <th className="whitespace-nowrap px-3 py-2 font-semibold">Notas</th>
               <th className="whitespace-nowrap px-3 py-2 font-semibold">Enlaces</th>
               <th className="whitespace-nowrap px-3 py-2 text-center font-semibold">Acciones</th>
@@ -524,7 +527,7 @@ export default function LeadsTable({
                   {CONTACTED_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
                 </select>
               </td>
-              <td /><td /><td />
+              <td /><td /><td /><td /><td /><td />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/70 text-slate-300">
@@ -574,6 +577,8 @@ export default function LeadsTable({
                 <td className="px-3 py-2">
                   <DateField value={l.follow_up} onChange={(v) => updateLead(l.business_id, { follow_up: v })} />
                 </td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{l.first_seen ?? "—"}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">{l.last_seen ?? "—"}</td>
                 <td className="px-3 py-2">
                   <button onClick={() => setNotesLead(l)} className="flex max-w-[160px] items-center gap-1 rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:border-indigo-500">
                     <NoteIcon />
@@ -599,7 +604,7 @@ export default function LeadsTable({
               </tr>
             ))}
             {pageRows.length === 0 && (
-              <tr><td colSpan={14} className="px-3 py-12 text-center text-slate-500">No hay leads que coincidan con los filtros.</td></tr>
+              <tr><td colSpan={16} className="px-3 py-12 text-center text-slate-500">No hay leads que coincidan con los filtros.</td></tr>
             )}
           </tbody>
         </table>
@@ -801,6 +806,10 @@ function LeadCard({
             {l.maps_url && <LinkButton href={l.maps_url}>maps</LinkButton>}
           </div>
         ) : null}
+        <div className="flex gap-4 text-[11px] text-slate-500">
+          <span>1ª vez: {l.first_seen ?? "—"}</span>
+          <span>Última: {l.last_seen ?? "—"}</span>
+        </div>
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">

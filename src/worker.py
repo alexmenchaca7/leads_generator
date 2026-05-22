@@ -98,19 +98,38 @@ def _run_job(sync, excel, job):
         businesses = asyncio.run(
             scraper.scrape_query(query, known_urls=known_urls, blocked_ids=blocked_ids)
         )
-        new_count, dup_count = excel.save_new_businesses(businesses)
+        res = excel.save_new_businesses(businesses)
+        new_count, dup_count = res["new_count"], res["dup_count"]
         sync.sync_all_from_excel()
+
+        # Negocios omitidos = ya conocidos/vetados (pre-visita) + duplicados al guardar
+        skipped_names = [n for n in (scraper.last_skipped_names + res["dup_names"]) if n]
+        new_names = [n for n in res["new_names"] if n]
+
+        # Actualiza "última vez visto" de los que ya existían y reaparecieron.
+        seen_ids = list({i for i in scraper.last_seen_again_ids if i})
+        if seen_ids:
+            today = datetime.now(timezone.utc).date().isoformat()
+            for i in range(0, len(seen_ids), 200):
+                try:
+                    client.table("leads").update({"last_seen": today}).in_(
+                        "business_id", seen_ids[i : i + 200]
+                    ).execute()
+                except Exception as exc:
+                    logger.debug("No se pudo actualizar last_seen: %s", exc)
 
         client.table("scrape_jobs").update(
             {
                 "status": "done",
                 "new_count": new_count,
                 "dup_count": dup_count,
-                "message": f"{new_count} nuevos · {dup_count} duplicados",
+                "new_names": new_names,
+                "skipped_names": skipped_names,
+                "message": f"{new_count} nuevos · {len(skipped_names)} omitidos",
                 "finished_at": _now(),
             }
         ).eq("id", job_id).execute()
-        logger.info("✓ Trabajo %s listo: %d nuevos, %d duplicados", job_id[:8], new_count, dup_count)
+        logger.info("✓ Trabajo %s listo: %d nuevos, %d omitidos", job_id[:8], new_count, len(skipped_names))
 
     except Exception as exc:
         logger.error("✗ Trabajo %s falló: %s", job_id[:8], exc, exc_info=True)

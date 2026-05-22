@@ -12,6 +12,8 @@ type ScrapeJob = {
   requested_by: string;
   new_count: number | null;
   dup_count: number | null;
+  new_names: string[] | null;
+  skipped_names: string[] | null;
   message: string;
   created_at: string;
   finished_at: string | null;
@@ -41,6 +43,7 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
   const [msg, setMsg] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
   const [worker, setWorker] = useState<{ last_seen: string | null; current_job: string | null } | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const loadJobs = useCallback(async () => {
     const { data } = await supabase
@@ -181,21 +184,53 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
           <ul className="divide-y divide-slate-800">
             {jobs.map((j) => {
               const s = STATUS[j.status] ?? STATUS.pending;
+              const newNames = j.new_names ?? [];
+              const skippedNames = j.skipped_names ?? [];
+              const hasDetail = j.status === "done" && (newNames.length > 0 || skippedNames.length > 0);
+              const isOpen = expanded === j.id;
               return (
-                <li key={j.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium text-slate-100">{j.query}</div>
-                    <div className="text-xs text-slate-500">
-                      {when(j.created_at)} · {j.requested_by || "—"}
-                      {j.status === "done" && j.new_count != null && (
-                        <span className="text-emerald-400"> · {j.new_count} nuevos, {j.dup_count} dup.</span>
+                <li key={j.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-slate-100">{j.query}</div>
+                      <div className="text-xs text-slate-500">
+                        {when(j.created_at)} · {j.requested_by || "—"}
+                        {j.status === "done" && j.new_count != null && (
+                          <span className="text-emerald-400"> · {j.new_count} nuevos, {skippedNames.length} omitidos</span>
+                        )}
+                        {j.status === "error" && <span className="text-red-400"> · {j.message}</span>}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {hasDetail && (
+                        <button
+                          onClick={() => setExpanded(isOpen ? null : j.id)}
+                          className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-300 hover:bg-slate-800"
+                        >
+                          {isOpen ? "Ocultar" : "Ver detalle"}
+                        </button>
                       )}
-                      {j.status === "error" && <span className="text-red-400"> · {j.message}</span>}
+                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${s.cls}`}>
+                        {s.label}
+                      </span>
                     </div>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${s.cls}`}>
-                    {s.label}
-                  </span>
+
+                  {isOpen && hasDetail && (
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <NameList
+                        title={`Nuevos (${newNames.length})`}
+                        names={newNames}
+                        cls="text-emerald-300"
+                      />
+                      <NameList
+                        title={`Omitidos (${skippedNames.length})`}
+                        names={skippedNames}
+                        cls="text-slate-400"
+                        hint="Ya estaban en el sistema o vetados"
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -203,5 +238,35 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
         )}
       </div>
     </main>
+  );
+}
+
+function NameList({
+  title,
+  names,
+  cls,
+  hint,
+}: {
+  title: string;
+  names: string[];
+  cls: string;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+      <div className={`mb-1 text-xs font-semibold uppercase tracking-wide ${cls}`}>{title}</div>
+      {hint && <div className="mb-2 text-[11px] text-slate-600">{hint}</div>}
+      {names.length === 0 ? (
+        <div className="text-xs text-slate-600">—</div>
+      ) : (
+        <ul className="max-h-48 space-y-0.5 overflow-y-auto overscroll-contain text-xs text-slate-300">
+          {names.map((n, i) => (
+            <li key={i} className="truncate">
+              {n}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

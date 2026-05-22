@@ -86,7 +86,8 @@ async def run_scrape(args: argparse.Namespace):
             logger.warning("No businesses returned for '%s'", query)
             continue
 
-        new_count, dup_count = excel.save_new_businesses(businesses)
+        res = excel.save_new_businesses(businesses)
+        new_count, dup_count = res["new_count"], res["dup_count"]
         all_new.extend(b for b in businesses)
 
         # Remember everything we just scraped so the next query skips it.

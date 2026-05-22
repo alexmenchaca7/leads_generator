@@ -155,6 +155,8 @@ create table if not exists public.scrape_jobs (
     requested_by  text default '',
     new_count     int,
     dup_count     int,
+    new_names     jsonb,
+    skipped_names jsonb,
     message       text default '',
     created_at    timestamptz default now(),
     started_at    timestamptz,

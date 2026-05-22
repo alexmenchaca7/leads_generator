@@ -65,6 +65,16 @@ def _clean_text(s: str | None) -> str:
     return _GLYPH_RE.sub("", s).strip()
 
 
+def _name_from_url(url: str) -> str:
+    """Extrae el nombre del negocio del segmento /maps/place/<Nombre>/ del feed."""
+    from urllib.parse import unquote_plus
+    try:
+        seg = url.split("/maps/place/")[1].split("/")[0]
+        return unquote_plus(seg).strip()
+    except Exception:
+        return ""
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _jitter(lo: float = None, hi: float = None):
@@ -408,6 +418,9 @@ class GoogleMapsScraper:
         results: list[dict] = []
         known_urls = known_urls or set()
         blocked_ids = blocked_ids or set()
+        # Reportes para el dashboard / worker:
+        self.last_skipped_names: list[str] = []   # omitidos (ya conocidos o vetados)
+        self.last_seen_again_ids: list[str] = []  # ya existentes vistos otra vez
 
         async with async_playwright() as pw:
             browser, context = await self._make_context(pw)
@@ -428,9 +441,12 @@ class GoogleMapsScraper:
             for n, f in pairs:
                 if n in known_urls:
                     skipped_known += 1
+                    self.last_skipped_names.append(_name_from_url(f))
+                    self.last_seen_again_ids.append(generate_business_id(maps_url=n))
                     continue
                 if blocked_ids and generate_business_id(maps_url=n) in blocked_ids:
                     skipped_blocked += 1
+                    self.last_skipped_names.append(_name_from_url(f))
                     continue
                 kept.append((n, f))
             pairs = kept

@@ -16,19 +16,17 @@ export default async function DashboardPage() {
     .order("lead_score", { ascending: false });
 
   return (
-    <main className="mx-auto max-w-[1600px] px-4 py-6">
+    <main className="mx-auto max-w-[1700px] px-4 py-6">
       <header className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Leads Dashboard</h1>
-          <p className="text-sm text-slate-500">
-            {user?.email}
-          </p>
+          <h1 className="text-2xl font-bold text-white">Leads Dashboard</h1>
+          <p className="text-sm text-slate-400">{user?.email}</p>
         </div>
         <SignOutButton />
       </header>
 
       {error ? (
-        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+        <div className="rounded-lg bg-red-500/10 px-4 py-3 text-sm text-red-400">
           Error cargando datos: {error.message}
         </div>
       ) : (

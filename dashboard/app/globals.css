@@ -8,5 +8,22 @@ body {
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased;
+  @apply bg-slate-950 text-slate-100 antialiased;
+  color-scheme: dark; /* selects, date pickers y scrollbars nativas en oscuro */
+}
+
+/* Scrollbar oscura */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: theme("colors.slate.900");
+}
+::-webkit-scrollbar-thumb {
+  background: theme("colors.slate.700");
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: theme("colors.slate.600");
 }

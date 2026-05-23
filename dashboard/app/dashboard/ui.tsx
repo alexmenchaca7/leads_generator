@@ -3,6 +3,12 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 
+// Logo de la agencia (archivo en dashboard/public/logo.png).
+export function Logo({ className = "h-8" }: { className?: string }) {
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src="/logo.png" alt="Logo" className={`${className} w-auto`} />;
+}
+
 // ── Modal reutilizable ─────────────────────────────────────────────────────────
 // Bloquea el scroll del fondo mientras está abierto (evita que el sistema se trabe)
 // y limita la altura: el contenido interno hace scroll sin cortar header/footer.

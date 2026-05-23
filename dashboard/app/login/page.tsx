@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Logo } from "@/app/dashboard/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,8 +48,8 @@ export default function LoginPage() {
         onSubmit={handleSubmit}
         className="relative w-full max-w-sm space-y-5 rounded-2xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl backdrop-blur"
       >
-        <div className="space-y-1 text-center">
-          <h1 className="text-2xl font-bold text-white">Leads Dashboard</h1>
+        <div className="flex flex-col items-center space-y-3 text-center">
+          <Logo className="h-12" />
           <p className="text-sm text-slate-400">Inicia sesión para continuar</p>
         </div>
 

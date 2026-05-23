@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { Logo } from "@/app/dashboard/ui";
 
 type ScrapeJob = {
   id: string;
@@ -104,9 +105,9 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
   return (
     <main className="mx-auto max-w-3xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Buscar negocios</h1>
-          <p className="text-sm text-slate-400">Lanza búsquedas de Google Maps al scraper</p>
+        <div className="space-y-1">
+          <Logo className="h-9" />
+          <h1 className="text-lg font-semibold text-white">Buscar negocios</h1>
         </div>
         <Link
           href="/dashboard"

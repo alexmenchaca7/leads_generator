@@ -5,6 +5,7 @@ import LeadsTable from "./LeadsTable";
 import SignOutButton from "./SignOutButton";
 import IdleTimeout from "./IdleTimeout";
 import OnlineUsers from "./OnlineUsers";
+import { Logo } from "./ui";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +24,8 @@ export default async function DashboardPage() {
     <main className="mx-auto max-w-[1700px] px-4 py-6">
       <IdleTimeout />
       <header className="mb-6 space-y-3 sm:flex sm:items-center sm:justify-between sm:space-y-0">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Leads Dashboard</h1>
+        <div className="space-y-1">
+          <Logo className="h-9" />
           <p className="text-sm text-slate-400">{userEmail}</p>
         </div>
         <div className="flex items-center justify-between gap-3 sm:justify-end">

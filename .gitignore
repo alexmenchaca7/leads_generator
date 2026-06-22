@@ -2,6 +2,10 @@
 data/
 logs/
 
+# ── Archivos internos / prompts ────────────────────────────────────────────────
+PROMPT_CLAUDE_CODE.md
+*.claude.md
+
 # ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
@@ -29,6 +33,12 @@ playwright-report/
 # ── Excel temporales / lock ────────────────────────────────────────────────────
 *.tmp.xlsx
 ~$*.xlsx
+
+# ── Dashboard (Next.js) ────────────────────────────────────────────────────────
+dashboard/node_modules/
+dashboard/.next/
+dashboard/out/
+dashboard/.vercel/
 
 # ── Editores / SO ──────────────────────────────────────────────────────────────
 .vscode/

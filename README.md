@@ -2,7 +2,7 @@
 
 A full-stack prospecting tool that scrapes Google Maps to find local businesses **without a website** — the ideal cold-lead list for web agencies, freelancers, and digital marketing services.
 
-Built with Python + Playwright for the scraper and Next.js + Supabase for the real-time web dashboard.
+> Built with Python + Playwright for scraping and Next.js + Supabase for the real-time web dashboard.
 
 ---
 
@@ -19,35 +19,58 @@ Built with Python + Playwright for the scraper and Next.js + Supabase for the re
 
 ## Tech Stack
 
+**Scraper (Python)**
+
+| Tool | Role |
+|------|------|
+| Python 3.12 + Playwright (async) | Browser automation, Google Maps scraping |
+| pandas + openpyxl | XLSX persistence and filtered view generation |
+| Supabase Python SDK | Optional cloud sync after each run |
+
+**Dashboard (Next.js)**
+
 | Layer | Technology |
 |-------|-----------|
-| Scraper | Python 3.12, Playwright (async) |
-| Persistence | openpyxl / pandas (.xlsx) |
-| Cloud DB | Supabase (PostgreSQL + Realtime) |
-| Dashboard | Next.js 14 (App Router), Tailwind CSS, TypeScript |
+| Framework | Next.js 14 (App Router), TypeScript |
+| Styling | Tailwind CSS |
+| Backend | Supabase (PostgreSQL + Realtime) |
 | Auth | Supabase Auth (magic link / email) |
-| Deploy | Vercel (dashboard) |
+| Deploy | Vercel (zero-config) |
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────┐
-│  CLI Scraper  (Python)          │
-│  main.py → src/scraper.py       │
-│      ↓ Playwright / Google Maps │
-│  src/excel_manager.py           │
-│      ↓ business_leads.xlsx      │
-│  src/db.py  ──→  Supabase DB   │
-└─────────────────────────────────┘
-              ↕ REST / Realtime
-┌─────────────────────────────────┐
-│  Web Dashboard  (Next.js)       │
-│  dashboard/app/dashboard/       │
-│  Supabase Auth + RLS            │
-└─────────────────────────────────┘
+Input: search queries (city + niche)
+       │
+       ▼
+┌──────────────────────────────────────────────────────┐
+│  CLI Scraper  (Python)                               │
+│  main.py                                             │
+│  ├── src/scraper.py  ← Playwright / Google Maps      │
+│  │       extracts: name · category · phone ·         │
+│  │                 website · rating · reviews · GPS   │
+│  ├── src/lead_scoring.py  ← scores 0–100            │
+│  │       signals: no_website · rating · reviews ·    │
+│  │                category · phone                    │
+│  ├── src/excel_manager.py  ← XLSX persistence        │
+│  │       sheets: raw_leads · no_website_leads ·      │
+│  │               high_priority · contacted            │
+│  └── src/db.py  ← optional Supabase push            │
+└──────────────────────────────────────────────────────┘
+                    │ REST API
+                    ▼
+┌──────────────────────────────────────────────────────┐
+│  Web Dashboard  (Next.js + Supabase)                 │
+│  dashboard/app/dashboard/                            │
+│  ├── Real-time leads table (Supabase Realtime)       │
+│  ├── Bulk actions · search history · modals          │
+│  └── Supabase Auth + RLS (row-level security)        │
+└──────────────────────────────────────────────────────┘
 ```
+
+> Supabase sync is **optional** — the scraper works fully standalone with Excel only. Add credentials in `.env` to enable the dashboard.
 
 ---
 
@@ -141,24 +164,56 @@ The master file is written to `data/business_leads.xlsx`:
 
 ---
 
-## Configuration (`config.py`)
+## How It Works
+
+```
+$ python main.py --query "restaurants in Austin Texas"
+
+Scraper: [Playwright opens Google Maps, scrolls results]
+         → 60 businesses extracted
+
+         [Lead scorer evaluates each business]
+         → restaurant · 4.8★ · 240 reviews · no website  →  score 75  (high)
+         → gym        · 3.2★ ·  12 reviews · has website  →  score  5  (low)
+         → dentist    · 4.5★ ·  80 reviews · no website  →  score 60  (high)
+
+         [ExcelManager deduplicates and writes]
+         → 47 new businesses added to raw_leads
+         → 13 duplicates skipped (already in master file)
+         → no_website_leads and high_priority views rebuilt
+
+         [Optional: Supabase sync]
+         → 47 leads pushed to cloud DB
+         → dashboard reflects changes instantly
+
+Run complete: 47 new · 13 skipped · 38 without website
+```
 
 ### Scoring weights
 
-```python
-SCORING_WEIGHTS = {
-    "no_website":          40,   # main signal
-    "rating_excellent":    20,   # >= 4.5 stars
-    "reviews_high":        20,   # >= 100 reviews
-    "high_value_category": 15,   # restaurants, gyms, clinics, etc.
-    "has_phone":            5,
-}
+| Signal | Weight | Condition |
+|--------|--------|-----------|
+| `no_website` | 40 | business has no website |
+| `rating_excellent` | 20 | rating ≥ 4.5 |
+| `reviews_high` | 20 | reviews ≥ 100 |
+| `high_value_category` | 15 | restaurant, gym, clinic, etc. |
+| `has_phone` | 5 | phone number present |
 
-PRIORITY_THRESHOLDS = {
-    "high":   60,   # score >= 60 → high priority
-    "medium": 35,
-}
-```
+Priority is assigned as `high` (score ≥ 60), `medium` (≥ 35), or `low`. All thresholds are configurable in `config.py`.
+
+### Estimated output per run
+
+| Query type | Businesses scraped | High-priority leads |
+|------------|-------------------|---------------------|
+| City + niche (e.g. "restaurants in Austin") | 40–60 | 10–25 |
+| Broader area (e.g. "restaurants Texas") | 50–60 | 15–30 |
+| Full site (multiple queries) | 200–400 | 60–120 |
+
+Results accumulate across runs — each new execution only adds businesses not already in the master file.
+
+---
+
+## Configuration (`config.py`)
 
 ### Scraper behavior
 
@@ -169,6 +224,23 @@ SCRAPER_CONFIG = {
     "scroll_pause_min": 1.5,   # seconds between scrolls (anti-bot)
     "scroll_pause_max": 3.0,
     "retry_attempts": 3,
+}
+```
+
+### Scoring weights
+
+```python
+SCORING_WEIGHTS = {
+    "no_website":          40,
+    "rating_excellent":    20,   # >= 4.5 stars
+    "reviews_high":        20,   # >= 100 reviews
+    "high_value_category": 15,
+    "has_phone":            5,
+}
+
+PRIORITY_THRESHOLDS = {
+    "high":   60,
+    "medium": 35,
 }
 ```
 
@@ -191,17 +263,7 @@ Apply the database schema from `supabase/schema.sql` in the Supabase SQL editor.
 
 For cloud sync from the scraper, copy `.env.example` to `.env` at the project root and add your `SUPABASE_SERVICE_KEY`.
 
----
-
-## How Deduplication Works
-
-Each business gets a stable `business_id` (SHA-256 of its normalized Maps URL, or name + address as fallback). On every run the scraper:
-
-1. Reads all existing IDs and URLs from the master Excel
-2. Skips any business already present
-3. Only appends genuinely new rows
-
-Manual notes, colors, and formatting in `raw_leads` are never overwritten.
+> The dashboard is entirely optional. Every feature of the scraper works without it using the Excel file alone.
 
 ---
 

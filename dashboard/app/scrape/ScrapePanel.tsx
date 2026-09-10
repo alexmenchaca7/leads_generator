@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Logo } from "@/app/dashboard/ui";
+import type { AppConfig } from "@/types";
+import WorkerGuide from "./WorkerGuide";
 
 type ScrapeJob = {
   id: string;
@@ -36,10 +38,10 @@ function when(iso: string) {
   });
 }
 
-export default function ScrapePanel({ userEmail }: { userEmail: string }) {
+export default function ScrapePanel({ userEmail, config }: { userEmail: string; config: AppConfig }) {
   const [supabase] = useState(() => createClient());
   const [query, setQuery] = useState("");
-  const [maxResults, setMaxResults] = useState(60);
+  const [maxResults, setMaxResults] = useState(config.scraper_config.max_results_per_query);
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [jobs, setJobs] = useState<ScrapeJob[]>([]);
@@ -67,14 +69,20 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
   useEffect(() => {
     loadJobs();
     loadWorker();
+    // Realtime (si esta activado en Supabase) + sondeo de respaldo: asi el estado
+    // de las busquedas (en cola -> buscando -> listo) se actualiza solo aunque
+    // Realtime no este configurado para estas tablas.
     const ch = supabase
       .channel("scrape-jobs")
       .on("postgres_changes", { event: "*", schema: "public", table: "scrape_jobs" }, () => loadJobs())
+      .on("postgres_changes", { event: "*", schema: "public", table: "worker_status" }, () => loadWorker())
       .subscribe();
-    const i = setInterval(loadWorker, 10000);
+    const iJobs = setInterval(loadJobs, 4000);
+    const iWorker = setInterval(loadWorker, 8000);
     return () => {
       supabase.removeChannel(ch);
-      clearInterval(i);
+      clearInterval(iJobs);
+      clearInterval(iWorker);
     };
   }, [supabase, loadJobs, loadWorker]);
 
@@ -83,23 +91,33 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
     : false;
   const busy = !!worker?.current_job;
 
+  function flash(text: string) {
+    setMsg(text);
+    setTimeout(() => setMsg(null), 2800);
+  }
+
+  async function enqueue(queries: string[]) {
+    const rows = queries
+      .map((q) => q.trim())
+      .filter(Boolean)
+      .map((q) => ({ query: q, max_results: maxResults, requested_by: userEmail, status: "pending" }));
+    if (rows.length === 0) return;
+    setSubmitting(true);
+    const { error } = await supabase.from("scrape_jobs").insert(rows);
+    setSubmitting(false);
+    if (error) return setMsg("No se pudo crear la búsqueda: " + error.message);
+    flash(rows.length === 1 ? "✓ Búsqueda en cola" : `✓ ${rows.length} búsquedas en cola`);
+    // Refresca de inmediato para que aparezca "en cola" sin esperar.
+    loadJobs();
+    loadWorker();
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
-    const q = query.trim();
-    if (!q) return;
-    setSubmitting(true);
-    const { error } = await supabase.from("scrape_jobs").insert({
-      query: q,
-      max_results: maxResults,
-      requested_by: userEmail,
-      status: "pending",
-    });
-    setSubmitting(false);
-    if (error) return setMsg("No se pudo crear la búsqueda: " + error.message);
+    if (!query.trim()) return;
+    await enqueue([query]);
     setQuery("");
-    setMsg("✓ Búsqueda en cola");
-    setTimeout(() => setMsg(null), 2500);
   }
 
   return (
@@ -127,23 +145,70 @@ export default function ScrapePanel({ userEmail }: { userEmail: string }) {
       >
         <span className={`h-2.5 w-2.5 rounded-full ${online ? "bg-emerald-400" : "bg-red-400"}`} />
         {online ? (
-          <span>Worker conectado{busy ? " · ocupado buscando…" : " · listo"}</span>
+          <span>Motor de búsquedas conectado{busy ? " · ocupado buscando…" : " · listo"}</span>
         ) : (
           <span>
-            Worker desconectado — abre tu PC y corre{" "}
-            <code className="rounded bg-slate-800 px-1.5 py-0.5 text-slate-200">python -m src.worker</code>
+            Motor de búsquedas <b>apagado</b>. Enciende la PC designada y abre el acceso
+            directo <b>«Iniciar búsquedas»</b>; en unos segundos esta barra se pondrá verde.
+            (Ver guía abajo.)
           </span>
+        )}
+      </div>
+
+      {/* Guía dentro del dashboard */}
+      <WorkerGuide online={online} />
+
+      {/* Búsquedas configuradas */}
+      <div className="mb-6 rounded-xl border border-slate-800 bg-slate-900 p-4">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-slate-200">Búsquedas configuradas</h2>
+          <Link href="/config" className="text-xs text-indigo-400 hover:text-indigo-300">Editar lista ⚙</Link>
+        </div>
+        <p className="mb-3 text-xs text-slate-500">
+          Lanza las búsquedas que definiste en Configurar. Cada una usa el máx. de resultados de abajo.
+        </p>
+
+        {config.search_queries.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No hay búsquedas configuradas.{" "}
+            <Link href="/config" className="text-indigo-400 hover:text-indigo-300">Agrégalas en Configurar</Link>.
+          </p>
+        ) : (
+          <>
+            <div className="mb-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => enqueue(config.search_queries)}
+                disabled={submitting}
+                className="rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50"
+              >
+                ⚡ Buscar todas ({config.search_queries.length})
+              </button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {config.search_queries.map((q) => (
+                <button
+                  key={q}
+                  onClick={() => enqueue([q])}
+                  disabled={submitting}
+                  title="Lanzar esta búsqueda"
+                  className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-xs text-slate-200 hover:border-indigo-500 hover:text-white disabled:opacity-50"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
       {/* Formulario */}
       <form onSubmit={submit} className="mb-6 space-y-3 rounded-xl border border-slate-800 bg-slate-900 p-4">
         <div className="space-y-1">
-          <label className="text-sm font-medium text-slate-300">¿Qué buscar?</label>
+          <label className="text-sm font-medium text-slate-300">Búsqueda puntual</label>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="ej. seguridad privada en Zapopan"
+            placeholder="ej. dentista en Zapopan"
             className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-indigo-500"
           />
         </div>

@@ -20,10 +20,11 @@ create table if not exists public.leads (
     lat             numeric,
     lng             numeric,
     maps_url        text default '',
-    no_website      boolean default false,
+    is_target       boolean default false,  -- prospecto: no tiene sitio propio
     lead_score      integer default 0,
     priority        text default 'low',     -- high | medium | low
-    website_status  text default '',        -- has_website | no_website
+    web_status      text default '',        -- sin_web | solo_redes | con_web
+    industry        text default '',        -- segmento: "Dental", "Restaurante"…
 
     -- Campos que escribe el scraper
     first_seen      date default current_date,
@@ -41,8 +42,10 @@ create table if not exists public.leads (
 
 -- Índices para filtros típicos del dashboard
 create index if not exists leads_priority_idx   on public.leads (priority);
-create index if not exists leads_no_website_idx on public.leads (no_website);
+create index if not exists leads_is_target_idx  on public.leads (is_target);
 create index if not exists leads_score_idx      on public.leads (lead_score desc);
+create index if not exists leads_web_status_idx on public.leads (web_status);
+create index if not exists leads_industry_idx   on public.leads (industry);
 
 -- ── Bitácora de contactos: varios renglones por negocio ─────────────────────
 create table if not exists public.contacts (
@@ -73,32 +76,6 @@ drop trigger if exists leads_set_updated_at on public.leads;
 create trigger leads_set_updated_at
     before update on public.leads
     for each row execute function public.set_updated_at();
-
--- ── Realtime: el dashboard recibe cambios en vivo ───────────────────────────
--- (ignora el error "already member" si lo corres dos veces)
-do $$
-begin
-    begin
-        alter publication supabase_realtime add table public.leads;
-    exception when duplicate_object then null;
-    end;
-    begin
-        alter publication supabase_realtime add table public.contacts;
-    exception when duplicate_object then null;
-    end;
-    begin
-        alter publication supabase_realtime add table public.activity_log;
-    exception when duplicate_object then null;
-    end;
-    begin
-        alter publication supabase_realtime add table public.scrape_jobs;
-    exception when duplicate_object then null;
-    end;
-    begin
-        alter publication supabase_realtime add table public.worker_status;
-    exception when duplicate_object then null;
-    end;
-end $$;
 
 -- ============================================================================
 --  Seguridad (Row Level Security)
@@ -198,3 +175,53 @@ create policy "blocklist_auth_all" on public.blocklist
     to authenticated
     using (true)
     with check (true);
+
+-- ── Configuración del sistema (editable desde el dashboard) ─────────────────
+-- Una fila por sección de config (search_queries, target_industries,
+-- social_domains, scoring_weights, priority_thresholds, dropdown_options,
+-- scraper_config). Lo que no exista aquí usa los valores por defecto de
+-- config.py / configDefaults.ts.
+create table if not exists public.app_config (
+    key        text primary key,
+    value      jsonb not null,
+    updated_at timestamptz default now()
+);
+
+alter table public.app_config enable row level security;
+drop policy if exists "app_config_auth_all" on public.app_config;
+create policy "app_config_auth_all" on public.app_config
+    for all
+    to authenticated
+    using (true)
+    with check (true);
+
+-- ── Realtime: el dashboard recibe cambios en vivo ───────────────────────────
+-- Se ejecuta AL FINAL, cuando todas las tablas ya existen.
+-- (ignora el error "already member" si lo corres dos veces)
+do $$
+begin
+    begin
+        alter publication supabase_realtime add table public.leads;
+    exception when duplicate_object then null;
+    end;
+    begin
+        alter publication supabase_realtime add table public.contacts;
+    exception when duplicate_object then null;
+    end;
+    begin
+        alter publication supabase_realtime add table public.activity_log;
+    exception when duplicate_object then null;
+    end;
+    begin
+        alter publication supabase_realtime add table public.scrape_jobs;
+    exception when duplicate_object then null;
+    end;
+    begin
+        alter publication supabase_realtime add table public.worker_status;
+    exception when duplicate_object then null;
+    end;
+    begin
+        alter publication supabase_realtime add table public.app_config;
+    exception when duplicate_object then null;
+    end;
+end $$;

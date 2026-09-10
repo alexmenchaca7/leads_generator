@@ -25,10 +25,11 @@ function emptyLead(): Lead {
     lat: null,
     lng: null,
     maps_url: "",
-    no_website: true,
+    is_target: true,
     lead_score: 0,
     priority: "low",
-    website_status: "no_website",
+    web_status: "sin_web",
+    industry: "",
     first_seen: todayISO(),
     last_seen: todayISO(),
     outreach_status: "pendiente",
@@ -75,17 +76,12 @@ export default function EditModal({
       alert("El nombre es obligatorio.");
       return;
     }
+    // La presencia web se deriva del link: si lo dejas vacio queda "sin_web".
+    // El valor definitivo (incluido "solo_redes") lo recalcula el motor con la
+    // lista de dominios de /config; aqui solo se distingue vacio vs con link.
     const website = (form.website ?? "").trim();
-    const no_website = website === "";
-    onSave(
-      {
-        ...form,
-        website,
-        no_website,
-        website_status: no_website ? "no_website" : "has_website",
-      },
-      mode
-    );
+    const web_status = website === "" ? "sin_web" : (form.web_status || "con_web");
+    onSave({ ...form, website, web_status, is_target: web_status !== "con_web" }, mode);
   }
 
   return (
@@ -113,7 +109,22 @@ export default function EditModal({
             <input className={FIELD} value={form.address ?? ""} onChange={(e) => set("address", e.target.value)} />
           </Field>
 
-          <Field label="Sitio web (vacío = sin web)" full>
+          <Field label="Industria">
+            <input className={FIELD} value={form.industry ?? ""} onChange={(e) => set("industry", e.target.value)} placeholder="Dental, Restaurante…" />
+          </Field>
+          <Field label="Presencia web">
+            <select
+              className={FIELD}
+              value={form.web_status ?? "sin_web"}
+              onChange={(e) => set("web_status", e.target.value)}
+            >
+              <option value="sin_web">Sin web</option>
+              <option value="solo_redes">Solo redes / página gratis</option>
+              <option value="con_web">Con sitio propio</option>
+            </select>
+          </Field>
+
+          <Field label="Sitio web o red social (vacío = sin web)" full>
             <input className={FIELD} value={form.website ?? ""} onChange={(e) => set("website", e.target.value)} placeholder="https://…" />
           </Field>
 

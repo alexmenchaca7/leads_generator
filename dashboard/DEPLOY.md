@@ -24,11 +24,19 @@ Scraper local (Python)  ──push──►  Supabase (Postgres + Auth + Realtim
    pégalo y dale **Run**. Debe decir *Success*. Esto crea las tablas `leads`, `contacts`
    y `blocklist` (leads vetados), la seguridad y el Realtime.
 
-   > Si ya habías corrido una versión anterior del esquema, corre además en el
-   > SQL Editor: [`supabase/02_blocklist.sql`](../supabase/02_blocklist.sql)
-   > (leads vetados), [`supabase/03_activity.sql`](../supabase/03_activity.sql)
-   > (historial de cambios) y [`supabase/04_scrape.sql`](../supabase/04_scrape.sql)
-   > (búsquedas desde el dashboard).
+   > **Si ya habías corrido una versión anterior del esquema**, no vuelvas a correr
+   > `schema.sql` completo: corre en el SQL Editor, en orden, solo las migraciones
+   > que te falten:
+   > [`02_blocklist.sql`](../supabase/02_blocklist.sql) (leads vetados),
+   > [`03_activity.sql`](../supabase/03_activity.sql) (historial de cambios),
+   > [`04_scrape.sql`](../supabase/04_scrape.sql) (búsquedas desde el dashboard),
+   > [`05_job_detail.sql`](../supabase/05_job_detail.sql) (detalle de cada búsqueda),
+   > [`06_app_config.sql`](../supabase/06_app_config.sql) (configuración editable) y
+   > [`07_presencia_web.sql`](../supabase/07_presencia_web.sql) (presencia web + giro).
+   >
+   > Después de correr la 07, entra al dashboard → **⚙ Configurar** → **Recalcular
+   > leads** (con el motor de búsquedas encendido) para que tus leads existentes se
+   > reclasifiquen bien.
 
 ### Obtener las llaves
 Ve a **Project Settings** (engrane) → **API**. Copia estos 3 valores:
@@ -43,15 +51,17 @@ Ve a **Project Settings** (engrane) → **API**. Copia estos 3 valores:
 
 ---
 
-## Parte 2 — Crear los usuarios (tú y tu socio)
+## Parte 2 — Crear el primer usuario
 
 En Supabase: **Authentication** → **Users** → **Add user** → *Create new user*:
 
 - Email y contraseña para ti.
-- Repite para tu socio.
-- Marca **Auto Confirm User** (para que no necesiten verificar correo).
+- Marca **Auto Confirm User** (para que no necesites verificar correo).
 
-Esos serán los logins del dashboard. Para quitarle acceso a alguien, borras su usuario aquí.
+Ese será tu login del dashboard. **De aquí en adelante ya no necesitas Supabase para
+esto**: dentro del dashboard hay una pantalla **Usuarios** donde das de alta a tu equipo,
+reseteas contraseñas y quitas accesos. (Requiere la `SUPABASE_SERVICE_ROLE_KEY` de la
+Parte 4.)
 
 ---
 
@@ -89,11 +99,17 @@ Esos serán los logins del dashboard. Para quitarle acceso a alguien, borras su 
 3. Importa el repo `leads_generator`.
 4. **IMPORTANTE — Root Directory**: dale *Edit* y selecciona la carpeta **`dashboard`**
    (el dashboard vive ahí, no en la raíz). Framework: *Next.js* (se detecta solo).
-5. En **Environment Variables** agrega estas dos:
-   | Name                            | Value                         |
-   |---------------------------------|-------------------------------|
-   | `NEXT_PUBLIC_SUPABASE_URL`      | tu Project URL                |
-   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | tu **anon / public** key      |
+5. En **Environment Variables** agrega estas tres:
+   | Name                            | Value                              |
+   |---------------------------------|------------------------------------|
+   | `NEXT_PUBLIC_SUPABASE_URL`      | tu Project URL                     |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | tu **anon / public** key           |
+   | `SUPABASE_SERVICE_ROLE_KEY`     | tu **service_role** key (secreta)  |
+
+   > La `service_role` va **sin** el prefijo `NEXT_PUBLIC_` a propósito: así nunca llega
+   > al navegador. Solo la usan dos rutas de servidor: la pantalla **Usuarios**
+   > (dar de alta/baja al equipo) y el botón que genera el archivo `conexion.env`
+   > del motor de búsquedas. Sin ella el dashboard carga, pero esas dos fallan.
 6. **Deploy**. En ~1 min tendrás una URL tipo `https://leads-generator-xxx.vercel.app`.
 7. Abre la URL → te manda a `/login` → entra con el usuario que creaste. ✅
 
@@ -101,14 +117,20 @@ Esos serán los logins del dashboard. Para quitarle acceso a alguien, borras su 
 
 ---
 
-## Buscar negocios desde el dashboard (worker)
+## Buscar negocios desde el dashboard (motor de búsquedas)
 
 Puedes lanzar búsquedas desde el dashboard (incluso desde el celular) en vez de
-correr `python main.py` a mano. Para eso, deja corriendo el **worker** en tu PC:
+correr `python main.py` a mano. Para eso, deja corriendo el **motor de búsquedas**
+(el *worker*) en tu PC:
 
 ```powershell
 python -m src.worker
 ```
+
+> Para alguien no técnico hay una versión de un clic: el dashboard, en **+ Buscar**,
+> trae una guía paso a paso con el programa descargable (`instalar.bat` /
+> `start_worker.bat`) y un botón que genera el archivo de conexión ya configurado.
+> Ver también [`INSTALACION_WORKER.md`](../INSTALACION_WORKER.md).
 
 - Déjalo abierto: queda escuchando. Cuando creas una búsqueda en la página
   **"+ Buscar negocios"** del dashboard, el worker la ejecuta **sin abrir navegador**
@@ -119,10 +141,17 @@ python -m src.worker
 
 ## Cómo funciona el día a día
 
-- **Scrapear**: lanza búsquedas desde el dashboard (con el worker corriendo) o corre
+- **Buscar**: lanza búsquedas desde el dashboard (con el motor encendido) o corre
   `python main.py` en tu PC → los leads nuevos aparecen en el dashboard **en vivo**.
-- **Trabajar leads**: tú y tu socio editan desde el dashboard (estado, contactado,
-  seguimiento, notas). Los cambios se guardan al instante y los ve el otro en vivo.
+- **Filtrar prospectos**: en el tablero, los botones **Sin web** y **Solo redes** te
+  dejan solo a quien no tiene sitio propio. Los *Solo redes* (su "web" es un Facebook
+  o una página gratis) suelen ser la venta más fácil: ya saben que necesitan estar en línea.
+- **Trabajar leads**: tú y tu equipo editan desde el dashboard (estado, contactado,
+  seguimiento, notas) y llaman o mandan WhatsApp con un clic. Los cambios se guardan
+  al instante y los ve el otro en vivo.
+- **Ajustar el sistema**: en **⚙ Configurar** cambias las búsquedas, los giros objetivo,
+  qué cuenta como "sitio propio" y cómo se calcula el score. Con **Recalcular leads**
+  reordenas los que ya tienes.
 - **El scraper nunca pisa sus ediciones**: al sincronizar solo inserta leads nuevos;
   los existentes quedan intactos.
 
@@ -149,6 +178,9 @@ Abre http://localhost:3000.
 |---|---|
 | Build de Vercel falla con "URL and API key required" | Faltan las env vars en Vercel (Parte 4, paso 5). |
 | El dashboard carga pero sin datos | ¿Corriste la migración (`python -m src.db --migrate`)? ¿RLS bien? Reejecuta `schema.sql`. |
-| Login dice "incorrectos" | El usuario no existe o no está *confirmado*. Créalo en Authentication → Users con *Auto Confirm*. |
+| Login dice "incorrectos" | El usuario no existe o no está *confirmado*. Créalo en Authentication → Users con *Auto Confirm*, o desde la pantalla **Usuarios** del dashboard. |
+| La pantalla **Usuarios** dice "Faltan… SUPABASE_SERVICE_ROLE_KEY" | Falta esa env var en Vercel (Parte 4, paso 5) o en `dashboard/.env.local` en local. Agrégala y vuelve a desplegar. |
+| Los leads viejos no muestran presencia web / industria | Falta correr `supabase/07_presencia_web.sql`, o falta el **Recalcular leads** de ⚙ Configurar (con el motor encendido). |
+| Cambié la config y no pasa nada | Los cambios aplican en la **siguiente búsqueda**. Para los leads que ya tienes, usa **Recalcular leads**. |
 | Los leads nuevos no aparecen en vivo | Realtime no activado: vuelve a correr la sección Realtime de `schema.sql`. |
 | `python main.py` no sube nada | Falta `.env` con `SUPABASE_URL` y `SUPABASE_SERVICE_KEY`, o falta `pip install -r requirements.txt`. |

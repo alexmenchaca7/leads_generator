@@ -1,10 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { mergeConfig } from "@/lib/configDefaults";
-import ScrapePanel from "./ScrapePanel";
+import ConfigPanel from "./ConfigPanel";
 
 export const dynamic = "force-dynamic";
 
-export default async function ScrapePage() {
+export default async function ConfigPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -13,5 +13,5 @@ export default async function ScrapePage() {
   const { data: configRows } = await supabase.from("app_config").select("key,value");
   const config = mergeConfig(configRows);
 
-  return <ScrapePanel userEmail={user?.email ?? ""} config={config} />;
+  return <ConfigPanel userEmail={user?.email ?? ""} initialConfig={config} />;
 }

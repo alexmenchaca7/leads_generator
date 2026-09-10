@@ -1,0 +1,38 @@
+# Qué NO se sube a Vercel al desplegar.
+#
+# El proyecto se despliega desde la RAÍZ del repo con Root Directory = "dashboard",
+# así que Vercel recibe todo el repo aunque solo construya el dashboard. Aquí se
+# excluye lo que no necesita para construir: secretos, datos scrapeados y el
+# scraper de Python.
+
+# ── Secretos ─────────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env*.example
+conexion.env
+
+# ── Datos generados (leads scrapeados, logs) ─────────────────────────────────
+data/
+logs/
+
+# ── Scraper de Python (no interviene en el build del dashboard) ──────────────
+src/
+main.py
+config.py
+requirements.txt
+*.bat
+__pycache__/
+.venv/
+venv/
+
+# ── Node / build ─────────────────────────────────────────────────────────────
+node_modules
+dashboard/node_modules
+dashboard/.next
+dashboard/.vercel
+
+# ── Editores / SO ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

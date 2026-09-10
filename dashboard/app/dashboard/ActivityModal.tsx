@@ -38,8 +38,9 @@ const FIELD_LABELS: Record<string, string> = {
   lead_score: "Score",
   priority: "Prioridad",
   maps_url: "Maps",
-  no_website: "Sin web",
-  website_status: "Estado web",
+  is_target: "Prospecto",
+  web_status: "Presencia web",
+  industry: "Industria",
 };
 
 function show(v: unknown): string {
@@ -64,6 +65,8 @@ const ACTION_VERB: Record<string, string> = {
   recover: "recuperó",
   update: "editó",
   scrape: "agregó por búsqueda",
+  purge: "borró definitivamente",
+  rescore: "recalculó",
 };
 
 export default function ActivityModal({

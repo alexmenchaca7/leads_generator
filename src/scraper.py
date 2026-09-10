@@ -107,44 +107,54 @@ async def _try_selectors_attr(page: Page, selectors: list[str], attr: str) -> Op
     return None
 
 
-_PHONE_NUM_RE = re.compile(r"[+\d][\d\s().\-]{6,}")
+# Numero suelto dentro de un texto.
+_NUM_RE = re.compile(r"[+\d][\d\s().\-]{6,}")
+# Numero ATADO a la palabra "telefono/phone" (para el fallback, evita capturar
+# numeros de otros elementos como los negocios sugeridos del panel lateral).
+_PHONE_LABEL_RE = re.compile(r"(?:tel[eé]fono|phone)\D{0,4}([+\d][\d\s().\-]{6,})", re.I)
 
 
 async def _extract_phone(page: Page) -> str:
-    """Extrae el teléfono limpio.
+    """Extrae el telefono del NEGOCIO ACTUAL, TAL CUAL aparece en la ficha.
 
-    Estrategia:
-      1. Atributo data-item-id="phone:tel:+52..." → número garantizado sin íconos.
-      2. aria-label del botón de teléfono, EXCLUYENDO "Enviar al teléfono"
-         (Send to phone), que no es un número sino la función de Google Maps.
-    Nunca lee inner_text del botón porque incluye el glifo del ícono.
+    1. Localiza el boton de telefono por data-item-id (autoritativo: es EL
+       telefono de este negocio) y lee el numero de su aria-label, para que
+       quede con el mismo formato visible de la ficha (ej. "33 3637 3187").
+       Si el aria-label no lo trae, usa el de data-item-id.
+    2. Fallback acotado al panel principal, con el numero pegado a "telefono".
+    No se reformatea ni se le agrega lada: se guarda como viene.
     """
-    # 1) data-item-id
-    for sel in (
-        'button[data-item-id^="phone:tel:"]',
-        'a[data-item-id^="phone:tel:"]',
-        '[data-item-id^="phone:tel:"]',
-    ):
-        try:
-            el = await page.query_selector(sel)
-            if el:
+    for scope in ('[role="main"] ', ""):
+        for tag in ("button", "a", ""):
+            sel = f'{scope}{tag}[data-item-id^="phone:tel:"]'
+            try:
+                el = await page.query_selector(sel)
+                if not el:
+                    continue
+                label = (await el.get_attribute("aria-label")) or ""
+                low = label.lower()
+                if not ("enviar" in low or "send" in low):
+                    m = _NUM_RE.search(label)
+                    if m:
+                        return m.group(0).strip()
                 item = await el.get_attribute("data-item-id")
                 if item and "phone:tel:" in item:
                     return item.split("phone:tel:")[-1].strip()
-        except Exception:
-            pass
+            except Exception:
+                pass
 
-    # 2) aria-label numérico (descartando "Enviar al teléfono"/"Send to phone")
+    # Fallback: aria-label de telefono dentro del panel principal
     try:
-        for el in await page.query_selector_all("button[aria-label], a[aria-label]"):
+        for el in await page.query_selector_all(
+            '[role="main"] button[aria-label], [role="main"] a[aria-label]'
+        ):
             label = (await el.get_attribute("aria-label")) or ""
             low = label.lower()
-            if "teléfono" in low or "telefono" in low or "phone" in low:
-                if "enviar" in low or "send" in low:
-                    continue
-                m = _PHONE_NUM_RE.search(label)
-                if m:
-                    return m.group(0).strip()
+            if "enviar" in low or "send" in low:
+                continue
+            m = _PHONE_LABEL_RE.search(label)
+            if m:
+                return m.group(1).strip()
     except Exception:
         pass
 
@@ -366,7 +376,7 @@ class GoogleMapsScraper:
         address = await _try_selectors(page, _ADDRESS_SELECTORS)
         data["address"] = _clean_text(address)
 
-        # Phone (limpio: sin ícono, sin "Enviar al teléfono")
+        # Phone tal cual la ficha (sin icono, sin "Enviar al telefono", sin reformatear)
         data["phone"] = await _extract_phone(page)
 
         # Rating + reviews — scan all aria-labels

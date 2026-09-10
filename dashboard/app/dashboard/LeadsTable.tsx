@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { type Lead, OUTREACH_OPTIONS } from "@/types";
-import { DateField, LinkButton, PhoneLink, Modal } from "./ui";
-import { cleanPhone } from "@/lib/clean";
+import { type Lead, type AppConfig, OUTREACH_OPTIONS, WEB_SIN, WEB_REDES, WEB_PROPIO, WEB_LABELS, WEB_STYLES } from "@/types";
+import { DateField, LinkButton, PhoneLink, WhatsAppLink, Modal } from "./ui";
+import { cleanPhone, siteHost } from "@/lib/clean";
 import EditModal from "./EditModal";
 import BlocklistModal from "./BlocklistModal";
 import ActivityModal from "./ActivityModal";
+import { ScoreInfoButton } from "./ScoreInfo";
 
 const PRIORITY_STYLES: Record<string, string> = {
   high: "bg-red-500/15 text-red-300 ring-1 ring-red-500/30",
@@ -15,15 +16,18 @@ const PRIORITY_STYLES: Record<string, string> = {
   low: "bg-slate-500/15 text-slate-300 ring-1 ring-slate-500/30",
 };
 const PRIORITY_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
-const PAGE_SIZES = [25, 50, 100];
+const PAGE_SIZES = [10, 25, 50, 100];
 
 const INPUT =
   "rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 outline-none focus:border-indigo-500";
 
+// Resaltado por presencia web: lo primero que quieres ver de un vistazo es
+// quien NO tiene sitio propio.
 function rowClass(lead: Lead): string {
-  if (lead.no_website && lead.priority === "high")
-    return "bg-amber-500/[0.07] hover:bg-amber-500/10";
-  if (lead.no_website) return "bg-emerald-500/[0.04] hover:bg-slate-800/50";
+  if (lead.web_status === WEB_SIN && lead.priority === "high")
+    return "bg-emerald-500/[0.10] hover:bg-emerald-500/15";
+  if (lead.web_status === WEB_SIN) return "bg-emerald-500/[0.04] hover:bg-slate-800/50";
+  if (lead.web_status === WEB_REDES) return "bg-amber-500/[0.05] hover:bg-amber-500/10";
   return "hover:bg-slate-800/50";
 }
 
@@ -37,9 +41,11 @@ type Toast = { id: number; msg: string; type: "success" | "error" };
 export default function LeadsTable({
   initialLeads,
   userEmail,
+  config,
 }: {
   initialLeads: Lead[];
   userEmail: string;
+  config: AppConfig;
 }) {
   const [supabase] = useState(() => createClient());
   const [leads, setLeads] = useState<Lead[]>(initialLeads);
@@ -50,7 +56,8 @@ export default function LeadsTable({
     dir: "desc",
   });
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  // 25 por pagina en escritorio, 10 en celular (se ajusta al montar segun el ancho).
+  const [pageSize, setPageSize] = useState(25);
   const [saving, setSaving] = useState<string | null>(null);
   const [notesLead, setNotesLead] = useState<Lead | null>(null);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
@@ -62,7 +69,7 @@ export default function LeadsTable({
   const [showActivity, setShowActivity] = useState(false);
   const [blockedCount, setBlockedCount] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkConfirm, setBulkConfirm] = useState<{ ids: string[]; label: string } | null>(null);
+  const [bulkConfirm, setBulkConfirm] = useState<{ ids: string[]; label: string; mode: "veto" | "purge" } | null>(null);
 
   function notify(msg: string, type: "success" | "error" = "success") {
     const id = Date.now() + Math.random();
@@ -72,7 +79,7 @@ export default function LeadsTable({
 
   // Registra un cambio en el log de actividad (auditoría compartida).
   async function logActivity(
-    action: "update" | "create" | "delete" | "recover",
+    action: "update" | "create" | "delete" | "recover" | "purge",
     business_id: string | null,
     business_name: string,
     changes: Record<string, unknown> | null
@@ -122,6 +129,13 @@ export default function LeadsTable({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase]);
+
+  // Default responsivo de filas por pagina: 10 en celular, 25 en escritorio.
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      setPageSize(10);
+    }
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -194,6 +208,30 @@ export default function LeadsTable({
     logActivity("delete", lead.business_id, lead.name, null);
   }
 
+  // Borrado DEFINITIVO: quita el lead sin vetarlo (NO entra a la blocklist), asi
+  // se puede volver a scrapear. Queda en el historial pero no es recuperable ni
+  // se puede deshacer (accion "purge").
+  async function performPurge(lead: Lead) {
+    setConfirmLead(null);
+    setLeads((prev) => prev.filter((l) => l.business_id !== lead.business_id));
+    const { error } = await supabase.from("leads").delete().eq("business_id", lead.business_id);
+    if (error) return notify("No se pudo borrar: " + error.message, "error");
+    notify(`✓ Borrado definitivamente: ${lead.name}`);
+    logActivity("purge", lead.business_id, lead.name, { permanent: true });
+  }
+
+  async function performBulkPurge(ids: string[]) {
+    setBulkConfirm(null);
+    const toDel = leads.filter((l) => ids.includes(l.business_id));
+    if (toDel.length === 0) return;
+    setLeads((prev) => prev.filter((l) => !ids.includes(l.business_id)));
+    clearSelection();
+    const { error } = await supabase.from("leads").delete().in("business_id", ids);
+    if (error) return notify("No se pudieron borrar: " + error.message, "error");
+    notify(`✓ ${toDel.length} negocios borrados definitivamente`);
+    logActivity("purge", null, `${toDel.length} negocios`, { permanent: true, count: toDel.length });
+  }
+
   function onRecovered(lead: Lead) {
     setLeads((prev) =>
       prev.some((l) => l.business_id === lead.business_id) ? prev : [lead, ...prev]
@@ -261,6 +299,12 @@ export default function LeadsTable({
     [leads]
   );
 
+  const industries = useMemo(
+    () =>
+      Array.from(new Set(leads.map((l) => l.industry).filter(Boolean))).sort() as string[],
+    [leads]
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const f = colFilters;
@@ -273,8 +317,10 @@ export default function LeadsTable({
       if (f.name && !l.name.toLowerCase().includes(f.name.toLowerCase())) return false;
       if (f.phone && !(l.phone ?? "").toLowerCase().includes(f.phone.toLowerCase())) return false;
       if (f.category && f.category !== "all" && l.category !== f.category) return false;
-      if (f.web === "nw" && !l.no_website) return false;
-      if (f.web === "w" && l.no_website) return false;
+      // "prospecto" = sin web O solo redes, es decir: no tiene sitio propio.
+      if (f.web === "prospecto" && l.web_status === WEB_PROPIO) return false;
+      if (f.web && f.web !== "all" && f.web !== "prospecto" && l.web_status !== f.web) return false;
+      if (f.industry && f.industry !== "all" && l.industry !== f.industry) return false;
       if (f.priority && f.priority !== "all" && l.priority !== f.priority) return false;
       if (f.outreach_status && f.outreach_status !== "all" && l.outreach_status !== f.outreach_status) return false;
       return true;
@@ -331,7 +377,8 @@ export default function LeadsTable({
   const stats = useMemo(
     () => ({
       total: leads.length,
-      sinWeb: leads.filter((l) => l.no_website).length,
+      sinWeb: leads.filter((l) => l.web_status === WEB_SIN).length,
+      soloRedes: leads.filter((l) => l.web_status === WEB_REDES).length,
       alta: leads.filter((l) => l.priority === "high").length,
       contactados: leads.filter((l) => l.outreach_status && l.outreach_status !== "pendiente").length,
     }),
@@ -341,9 +388,10 @@ export default function LeadsTable({
   return (
     <div className="space-y-4">
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <Stat label="Total leads" value={stats.total} accent="text-white" />
         <Stat label="Sin sitio web" value={stats.sinWeb} accent="text-emerald-400" />
+        <Stat label="Solo redes" value={stats.soloRedes} accent="text-amber-400" />
         <Stat label="Prioridad alta" value={stats.alta} accent="text-red-400" />
         <Stat label="Contactados" value={stats.contactados} accent="text-indigo-400" />
       </div>
@@ -388,14 +436,46 @@ export default function LeadsTable({
           </button>
         </div>
 
-        {/* Meta: limpiar + conteo */}
-        <div className="flex items-center justify-between text-sm text-slate-400">
-          <button
-            onClick={clearFilters}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800"
-          >
-            Limpiar filtros
-          </button>
+        {/* Atajos: lo que de verdad quieres ver siendo agencia web */}
+        <div className="flex flex-wrap gap-2">
+          <QuickFilter
+            label="Solo prospectos"
+            hint="Sin sitio propio: sin web o solo redes"
+            active={colFilters.web === "prospecto"}
+            onClick={() => setColFilter("web", colFilters.web === "prospecto" ? "all" : "prospecto")}
+            className="border-indigo-500/50 bg-indigo-500/10 text-indigo-200"
+          />
+          <QuickFilter
+            label="Sin web"
+            hint="No aparece ningún sitio en su ficha"
+            active={colFilters.web === WEB_SIN}
+            onClick={() => setColFilter("web", colFilters.web === WEB_SIN ? "all" : WEB_SIN)}
+            className="border-emerald-500/50 bg-emerald-500/10 text-emerald-200"
+          />
+          <QuickFilter
+            label="Solo redes"
+            hint="Su sitio es un Facebook, Instagram o página gratis"
+            active={colFilters.web === WEB_REDES}
+            onClick={() => setColFilter("web", colFilters.web === WEB_REDES ? "all" : WEB_REDES)}
+            className="border-amber-500/50 bg-amber-500/10 text-amber-200"
+          />
+        </div>
+
+        {/* Meta: limpiar + explicacion score + conteo */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-400">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={clearFilters}
+              className="rounded-lg border border-slate-700 px-3 py-1.5 text-slate-300 hover:bg-slate-800"
+            >
+              Limpiar filtros
+            </button>
+            <ScoreInfoButton
+              weights={config.scoring_weights}
+              thresholds={config.priority_thresholds}
+              label="¿Cómo se calcula el score?"
+            />
+          </div>
           <span className="whitespace-nowrap">
             {total} resultados
             {saving && <span className="ml-2 text-indigo-400">guardando…</span>}
@@ -403,11 +483,13 @@ export default function LeadsTable({
         </div>
 
         {showMobileFilters && (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             <FilterSelect value={colFilters.category ?? "all"} onChange={(v) => setColFilter("category", v)} label="Categoría"
               options={[["all", "Todas"], ...categories.map((c) => [c, c] as [string, string])]} />
-            <FilterSelect value={colFilters.web ?? "all"} onChange={(v) => setColFilter("web", v)} label="Web"
-              options={[["all", "Todos"], ["nw", "Sin web"], ["w", "Con web"]]} />
+            <FilterSelect value={colFilters.web ?? "all"} onChange={(v) => setColFilter("web", v)} label="Presencia web"
+              options={[["all", "Todos"], ["prospecto", "Solo prospectos"], [WEB_SIN, "Sin web"], [WEB_REDES, "Solo redes"], [WEB_PROPIO, "Con web"]]} />
+            <FilterSelect value={colFilters.industry ?? "all"} onChange={(v) => setColFilter("industry", v)} label="Industria"
+              options={[["all", "Todas"], ...industries.map((i) => [i, i] as [string, string])]} />
             <FilterSelect value={colFilters.priority ?? "all"} onChange={(v) => setColFilter("priority", v)} label="Prioridad"
               options={[["all", "Todas"], ["high", "Alta"], ["medium", "Media"], ["low", "Baja"]]} />
             <FilterSelect value={colFilters.outreach_status ?? "all"} onChange={(v) => setColFilter("outreach_status", v)} label="Estado"
@@ -430,17 +512,32 @@ export default function LeadsTable({
               Seleccionar los {sorted.length} filtrados
             </button>
           )}
-          <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex">
+          <div className="grid grid-cols-3 gap-2 sm:ml-auto sm:flex">
             <button
               onClick={() =>
                 setBulkConfirm({
                   ids: Array.from(selected),
                   label: `${selected.size} negocio${selected.size !== 1 ? "s" : ""}`,
+                  mode: "veto",
                 })
               }
+              title="Quitar del tablero y que el motor no los vuelva a agregar (recuperable)"
               className="rounded-lg bg-red-600 px-3 py-2 font-semibold text-white hover:bg-red-500"
             >
-              Vetar selección
+              Vetar
+            </button>
+            <button
+              onClick={() =>
+                setBulkConfirm({
+                  ids: Array.from(selected),
+                  label: `${selected.size} negocio${selected.size !== 1 ? "s" : ""}`,
+                  mode: "purge",
+                })
+              }
+              title="Borrar definitivamente (no se puede recuperar; se podrá volver a scrapear)"
+              className="rounded-lg border border-red-500/50 bg-red-500/10 px-3 py-2 font-semibold text-red-300 hover:bg-red-500/20"
+            >
+              Borrar
             </button>
             <button
               onClick={clearSelection}
@@ -453,21 +550,21 @@ export default function LeadsTable({
       )}
 
       {/* ── ESCRITORIO: tabla ──────────────────────────────────────────────── */}
-      <div className="hidden overflow-hidden rounded-xl border border-slate-800 bg-slate-900 lg:block">
-        <table className="w-full table-fixed text-sm">
+      <div className="hidden overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 lg:block">
+        <table className="w-full min-w-[1040px] table-fixed text-sm">
           <colgroup>
             <col style={{ width: "3%" }} />
-            <col style={{ width: "17%" }} />
-            <col style={{ width: "11%" }} />
-            <col style={{ width: "7%" }} />
-            <col style={{ width: "5%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "11%" }} />
-            <col style={{ width: "11%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "8%" }} />
-            <col style={{ width: "11%" }} />
+            <col style={{ width: "15%" }} />
+            <col style={{ width: "13%" }} />
             <col style={{ width: "6%" }} />
+            <col style={{ width: "5%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "8%" }} />
+            <col style={{ width: "7%" }} />
+            <col style={{ width: "13%" }} />
+            <col style={{ width: "9%" }} />
+            <col style={{ width: "5%" }} />
           </colgroup>
           <thead className="text-left text-xs uppercase tracking-wide text-slate-400">
             <tr className="border-b border-slate-800">
@@ -483,12 +580,18 @@ export default function LeadsTable({
               <Th label="Negocio" sortKey="name" sort={sort} onSort={toggleSort} />
               <th className="px-2 py-2 font-semibold">Teléfono</th>
               <Th label="Rating" sortKey="rating" sort={sort} onSort={toggleSort} />
-              <Th label="Score" sortKey="lead_score" sort={sort} onSort={toggleSort} />
+              <Th
+                label="Score"
+                sortKey="lead_score"
+                sort={sort}
+                onSort={toggleSort}
+                info={<ScoreInfoButton weights={config.scoring_weights} thresholds={config.priority_thresholds} />}
+              />
               <Th label="Prioridad" sortKey="priority" sort={sort} onSort={toggleSort} />
               <Th label="Estado" sortKey="outreach_status" sort={sort} onSort={toggleSort} />
               <Th label="Seguimiento" sortKey="follow_up" sort={sort} onSort={toggleSort} />
               <Th label="Visto" sortKey="last_seen" sort={sort} onSort={toggleSort} />
-              <th className="px-2 py-2 font-semibold">Web</th>
+              <th className="px-2 py-2 font-semibold">Presencia web</th>
               <th className="px-2 py-2 font-semibold">Notas</th>
               <th className="px-2 py-2 text-center font-semibold">Acciones</th>
             </tr>
@@ -511,8 +614,13 @@ export default function LeadsTable({
                   <div className="font-medium text-slate-100">{l.name}</div>
                   <div className="text-xs text-slate-500">{l.category}</div>
                 </td>
-                <td className="whitespace-nowrap px-2 py-2">
-                  {cleanPhone(l.phone) ? <PhoneLink phone={cleanPhone(l.phone)} /> : "—"}
+                <td className="px-2 py-2">
+                  {cleanPhone(l.phone) ? (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <PhoneLink phone={cleanPhone(l.phone)} compact />
+                      <WhatsAppLink phone={cleanPhone(l.phone)} />
+                    </div>
+                  ) : "—"}
                 </td>
                 <td className="whitespace-nowrap px-2 py-2">
                   {l.rating ? `${l.rating}★` : "—"}
@@ -535,13 +643,12 @@ export default function LeadsTable({
                   <div>Últ {l.last_seen ?? "—"}</div>
                 </td>
                 <td className="px-2 py-2">
-                  <div className="flex flex-wrap items-center gap-1">
-                    {l.no_website ? (
-                      <span className="whitespace-nowrap rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-300">Sin web</span>
-                    ) : (
-                      l.website && <LinkButton href={l.website}>sitio</LinkButton>
-                    )}
+                  <div className="flex min-w-0 flex-wrap items-center gap-1">
+                    <WebBadge lead={l} />
                     {l.maps_url && <LinkButton href={l.maps_url}>maps</LinkButton>}
+                    {l.industry && (
+                      <span className="w-full truncate text-[11px] text-slate-500" title={l.industry}>{l.industry}</span>
+                    )}
                   </div>
                 </td>
                 <td className="px-2 py-2">
@@ -647,18 +754,28 @@ export default function LeadsTable({
         <ConfirmModal
           lead={confirmLead}
           onCancel={() => setConfirmLead(null)}
-          onConfirm={() => performDelete(confirmLead)}
+          onVeto={() => performDelete(confirmLead)}
+          onPurge={() => performPurge(confirmLead)}
         />
       )}
       {bulkConfirm && (
         <Modal onClose={() => setBulkConfirm(null)} size="sm">
           <div className="p-6">
             <h3 className="mb-2 text-lg font-semibold text-white">
-              ¿Vetar {bulkConfirm.label}?
+              {bulkConfirm.mode === "veto" ? "¿Vetar" : "¿Borrar definitivamente"} {bulkConfirm.label}?
             </h3>
             <p className="mb-5 text-sm text-slate-400">
-              Se quitarán del tablero y el scraper no los volverá a agregar. Podrás
-              recuperarlos después desde <span className="text-slate-200">Vetados</span>.
+              {bulkConfirm.mode === "veto" ? (
+                <>
+                  Se quitarán del tablero y el motor de búsquedas no los volverá a agregar.
+                  Podrás recuperarlos después desde <span className="text-slate-200">Vetados</span>.
+                </>
+              ) : (
+                <>
+                  Se eliminarán para siempre. <b className="text-red-300">No se podrán recuperar
+                  ni deshacer.</b> El motor sí podrá volver a agregarlos en una próxima búsqueda.
+                </>
+              )}
             </p>
             <div className="flex justify-end gap-2">
               <button
@@ -668,10 +785,14 @@ export default function LeadsTable({
                 Cancelar
               </button>
               <button
-                onClick={() => performBulkVeto(bulkConfirm.ids)}
+                onClick={() =>
+                  bulkConfirm.mode === "veto"
+                    ? performBulkVeto(bulkConfirm.ids)
+                    : performBulkPurge(bulkConfirm.ids)
+                }
                 className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500"
               >
-                Sí, vetar {bulkConfirm.ids.length}
+                {bulkConfirm.mode === "veto" ? "Sí, vetar" : "Sí, borrar"} {bulkConfirm.ids.length}
               </button>
             </div>
           </div>
@@ -741,7 +862,10 @@ function LeadCard({
 
       <div className="mt-3 space-y-2">
         {cleanPhone(l.phone) ? (
-          <PhoneLink phone={cleanPhone(l.phone)} />
+          <div className="flex items-center gap-2">
+            <PhoneLink phone={cleanPhone(l.phone)} />
+            <WhatsAppLink phone={cleanPhone(l.phone)} />
+          </div>
         ) : (
           <span className="text-sm text-slate-500">Sin teléfono</span>
         )}
@@ -753,15 +877,16 @@ function LeadCard({
           <span className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300">
             Score <b className="text-white">{l.lead_score}</b>
           </span>
-          {l.no_website ? (
-            <span className="rounded-md bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-300">Sin web</span>
-          ) : (
-            <span className="rounded-md bg-slate-700/50 px-2 py-1 text-xs font-medium text-slate-400">Con web</span>
+          <span className={`rounded-md px-2 py-1 text-xs font-medium ${WEB_STYLES[l.web_status ?? WEB_PROPIO] ?? WEB_STYLES[WEB_PROPIO]}`}>
+            {WEB_LABELS[l.web_status ?? WEB_PROPIO] ?? "—"}
+          </span>
+          {l.industry && (
+            <span className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-400">{l.industry}</span>
           )}
         </div>
-        {(l.website && !l.no_website) || l.maps_url ? (
+        {l.website || l.maps_url ? (
           <div className="flex flex-wrap gap-2">
-            {!l.no_website && l.website && <LinkButton href={l.website}>sitio</LinkButton>}
+            {l.website && <LinkButton href={l.website}>{siteHost(l.website).slice(0, 24) || "sitio"}</LinkButton>}
             {l.maps_url && <LinkButton href={l.maps_url}>maps</LinkButton>}
           </div>
         ) : null}
@@ -826,26 +951,90 @@ function NotesModal({
 function ConfirmModal({
   lead,
   onCancel,
-  onConfirm,
+  onVeto,
+  onPurge,
 }: {
   lead: Lead;
   onCancel: () => void;
-  onConfirm: () => void;
+  onVeto: () => void;
+  onPurge: () => void;
 }) {
   return (
     <Modal onClose={onCancel} size="sm">
       <div className="p-6">
-        <h3 className="mb-2 text-lg font-semibold text-white">¿Vetar este negocio?</h3>
-        <p className="mb-5 text-sm text-slate-400">
-          <span className="font-medium text-slate-200">{lead.name}</span> se eliminará del tablero y el scraper
-          no lo volverá a agregar. Podrás recuperarlo después desde el botón <span className="text-slate-200">Vetados</span>.
+        <h3 className="mb-2 text-lg font-semibold text-white">Quitar este negocio</h3>
+        <p className="mb-4 text-sm text-slate-400">
+          <span className="font-medium text-slate-200">{lead.name}</span>
         </p>
-        <div className="flex justify-end gap-2">
+        <ul className="mb-5 space-y-2 text-sm text-slate-400">
+          <li>
+            <b className="text-slate-200">Vetar:</b> lo quita del tablero y el motor de búsquedas
+            <b> no</b> lo volverá a agregar. Recuperable desde <span className="text-slate-200">Vetados</span>.
+          </li>
+          <li>
+            <b className="text-red-300">Borrar definitivamente:</b> lo elimina para siempre
+            (<b>no recuperable ni reversible</b>); el motor <b>sí</b> podrá volver a agregarlo.
+          </li>
+        </ul>
+        <div className="flex flex-wrap justify-end gap-2">
           <button onClick={onCancel} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:bg-slate-800">Cancelar</button>
-          <button onClick={onConfirm} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500">Sí, vetar</button>
+          <button onClick={onVeto} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500">Vetar</button>
+          <button onClick={onPurge} className="rounded-lg border border-red-500/50 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 hover:bg-red-500/20">Borrar definitivamente</button>
         </div>
       </div>
     </Modal>
+  );
+}
+
+// ── Etiqueta de presencia web ──────────────────────────────────────────────────
+// La senal central para una agencia web. "Solo redes" muestra ademas de que red
+// se trata (facebook.com, business.site…) porque eso es el gancho de la llamada.
+function WebBadge({ lead }: { lead: Lead }) {
+  const status = lead.web_status ?? (lead.website ? WEB_PROPIO : WEB_SIN);
+  const style = WEB_STYLES[status] ?? WEB_STYLES[WEB_PROPIO];
+  const label = WEB_LABELS[status] ?? "—";
+
+  if (status === WEB_SIN) {
+    return (
+      <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${style}`}>
+        {label}
+      </span>
+    );
+  }
+
+  const host = siteHost(lead.website);
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${style}`}>
+        {label}
+      </span>
+      {lead.website && (
+        <LinkButton href={lead.website}>{host ? host.slice(0, 18) : "sitio"}</LinkButton>
+      )}
+    </span>
+  );
+}
+
+// ── Boton de filtro rapido ─────────────────────────────────────────────────────
+function QuickFilter({
+  label, hint, active, onClick, className,
+}: {
+  label: string;
+  hint: string;
+  active: boolean;
+  onClick: () => void;
+  className: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={hint}
+      className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+        active ? className + " ring-1 ring-inset ring-current" : "border-slate-700 text-slate-400 hover:bg-slate-800"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -877,20 +1066,24 @@ function Stat({ label, value, accent = "text-white" }: { label: string; value: n
 }
 
 function Th({
-  label, sortKey, sort, onSort,
+  label, sortKey, sort, onSort, info,
 }: {
   label: string;
   sortKey: SortKey;
   sort: { key: SortKey; dir: "asc" | "desc" };
   onSort: (k: SortKey) => void;
+  info?: React.ReactNode;
 }) {
   const active = sort.key === sortKey;
   return (
     <th className="whitespace-nowrap px-3 py-2 font-semibold">
-      <button onClick={() => onSort(sortKey)} className={`flex items-center gap-1 transition hover:text-slate-200 ${active ? "text-indigo-400" : ""}`}>
-        {label}
-        <span className="text-[10px]">{active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}</span>
-      </button>
+      <span className="flex items-center gap-1">
+        <button onClick={() => onSort(sortKey)} className={`flex items-center gap-1 transition hover:text-slate-200 ${active ? "text-indigo-400" : ""}`}>
+          {label}
+          <span className="text-[10px]">{active ? (sort.dir === "asc" ? "▲" : "▼") : "↕"}</span>
+        </button>
+        {info}
+      </span>
     </th>
   );
 }

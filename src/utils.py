@@ -60,6 +60,38 @@ def generate_business_id(
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
 
 
+def normalize_phone(raw: str) -> str:
+    """Normaliza a '+52' + 10 digitos (Mexico), tolerando las variantes con que
+    Google entrega el numero: 10 (nacional), 11 (1+10), 12 (52+10), 13 (521+10).
+    Asi todos quedan iguales.
+        '+52 33 3613 3523' -> '+523336133523'
+        '523336133523'     -> '+523336133523'
+        '5213336133523'    -> '+523336133523'
+        '3336133523'       -> '+523336133523'
+    """
+    if not raw:
+        return ""
+    digits = re.sub(r"\D", "", raw)
+    if not digits:
+        return ""
+    d = digits
+    if len(d) == 13 and d.startswith("521"):
+        d = d[3:]
+    elif len(d) == 13 and (d.startswith("044") or d.startswith("045")):
+        d = d[3:]
+    elif len(d) == 12 and d.startswith("52"):
+        d = d[2:]
+    elif len(d) == 12 and d.startswith("01"):
+        d = d[2:]
+    elif len(d) == 11 and d.startswith("1"):
+        d = d[1:]
+    # NO adivinar recortando: si no quedo en 10, se deja tal cual (con '+')
+    # para NO cambiar el numero.
+    if len(d) == 10:
+        return "+52" + d
+    return "+" + digits  # numero no estandar; se puede corregir a mano
+
+
 def parse_number(text: str) -> float | None:
     """Parse a number like '4.5', '4,5', '1.234' or '1,234' from a string."""
     if not text:

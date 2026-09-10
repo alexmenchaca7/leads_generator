@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 # Columnas que viajan a Supabase (deben existir en la tabla `leads`)
 _LEAD_COLUMNS = [
     "business_id", "name", "category", "address", "phone", "website",
-    "rating", "reviews_count", "lat", "lng", "maps_url", "no_website",
-    "lead_score", "priority", "website_status", "first_seen", "last_seen",
+    "rating", "reviews_count", "lat", "lng", "maps_url", "is_target",
+    "lead_score", "priority", "web_status", "industry", "first_seen", "last_seen",
     "outreach_status", "contacted", "follow_up", "notes",
 ]
 
@@ -40,10 +40,19 @@ _MANUAL_DEFAULTS = {"outreach_status": "pendiente", "contacted": "no", "notes": 
 
 
 def _load_env():
-    """Carga variables desde .env si python-dotenv está disponible."""
+    """Carga variables desde el archivo de conexión si python-dotenv está disponible.
+
+    Busca tanto `.env` (uso técnico) como `conexion.env` (el que se descarga
+    desde el dashboard, sin punto inicial para que Windows y los navegadores no
+    lo escondan ni lo renombren).
+    """
     try:
         from dotenv import load_dotenv
-        load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+        base = Path(__file__).resolve().parent.parent
+        for name in (".env", "conexion.env"):
+            path = base / name
+            if path.exists():
+                load_dotenv(path, override=False)
     except Exception:
         pass  # opcional; también funciona con variables de entorno del sistema
 
@@ -67,10 +76,15 @@ def _clean_value(col: str, value):
             return int(float(value))
         except (TypeError, ValueError):
             return None
-    if col == "no_website":
+    if col == "is_target":
         return bool(value) if not isinstance(value, str) else value.strip().lower() in ("true", "1", "sí", "si")
     if col in _DATE_COLS:
         return str(value)[:10]  # YYYY-MM-DD
+    if col == "phone":
+        s = str(value).strip()
+        if s.endswith(".0"):  # por si vino como número (float) desde Excel
+            s = s[:-2]
+        return s
     return str(value).strip()
 
 
@@ -115,6 +129,31 @@ class SupabaseSync:
         ).execute()
         return len(rows)
 
+    def update_scores(self, rows: list[dict]) -> int:
+        """Actualiza is_target/lead_score/priority/web_status/industry de leads
+        existentes (tras un recálculo). No toca columnas manuales.
+        Devuelve cuántos actualizó.
+        """
+        total = 0
+        for r in rows:
+            bid = r.get("business_id")
+            if not bid:
+                continue
+            patch = {
+                "is_target":  bool(r.get("is_target")),
+                "lead_score": int(r.get("lead_score") or 0),
+                "priority":   str(r.get("priority") or "low"),
+                "web_status": str(r.get("web_status") or ""),
+                "industry":   str(r.get("industry") or ""),
+            }
+            try:
+                self.client.table("leads").update(patch).eq("business_id", bid).execute()
+                total += 1
+            except Exception as exc:
+                logger.debug("No se pudo actualizar score de %s: %s", bid, exc)
+        logger.info("Supabase: %d scores actualizados tras recálculo", total)
+        return total
+
     def sync_all_from_excel(self) -> int:
         """Lee el Excel maestro y sube todos los leads (los nuevos se insertan,
         los existentes quedan intactos). Devuelve cuántos renglones procesó."""
@@ -122,7 +161,10 @@ class SupabaseSync:
             logger.warning("No existe el Excel maestro: %s", MASTER_FILE)
             return 0
 
-        df = pd.read_excel(str(MASTER_FILE), sheet_name="raw_leads")
+        # dtype=str: lee TODO como texto para que pandas NO convierta el teléfono
+        # a número decimal (lo que añadía un ".0" → "0" al final). _clean_value
+        # ya reconvierte rating/reseñas/lat/lng a número donde corresponde.
+        df = pd.read_excel(str(MASTER_FILE), sheet_name="raw_leads", dtype=str)
         df = df[df["business_id"].notna() & (df["business_id"].astype(str).str.strip() != "")]
 
         blocked = self.fetch_blocked_ids()

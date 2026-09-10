@@ -26,8 +26,9 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Google Maps Lead Generator")
     p.add_argument("--headless",     action="store_true",
                    help="Run browser in headless mode")
-    p.add_argument("--mode",         choices=["scrape", "refresh"], default="scrape",
-                   help="'scrape' collects new data; 'refresh' rebuilds filtered sheets")
+    p.add_argument("--mode",         choices=["scrape", "refresh", "rescore"], default="scrape",
+                   help="'scrape' collects new data; 'refresh' rebuilds filtered sheets; "
+                        "'rescore' recomputes scores of existing leads with current config")
     p.add_argument("--query",        type=str,
                    help="Single search query (overrides SEARCH_QUERIES in config.py)")
     p.add_argument("--max-results",  type=int,
@@ -40,6 +41,17 @@ def parse_args() -> argparse.Namespace:
 async def run_scrape(args: argparse.Namespace):
     from src.scraper import GoogleMapsScraper
     from src.excel_manager import ExcelManager
+    from src.db import SupabaseSync
+    from src.remote_config import apply_overrides
+
+    # Conectar a Supabase (si hay .env) y aplicar la config editada desde el
+    # dashboard ANTES de leer SEARCH_QUERIES / SCRAPER_CONFIG o crear el scraper.
+    sync = SupabaseSync.from_env()
+    if sync:
+        try:
+            apply_overrides(sync.client)
+        except Exception as exc:
+            logger.warning("No se pudo aplicar la config remota (se usan defaults): %s", exc)
 
     headless = args.headless or SCRAPER_CONFIG.get("headless", False)
     scraper  = GoogleMapsScraper(headless=headless)
@@ -59,14 +71,12 @@ async def run_scrape(args: argparse.Namespace):
 
     # Cargar vetados (borrados desde el dashboard) para no re-scrapearlos.
     blocked_ids: set[str] = set()
-    try:
-        from src.db import SupabaseSync
-        _sync = SupabaseSync.from_env()
-        if _sync:
-            blocked_ids = _sync.fetch_blocked_ids()
+    if sync:
+        try:
+            blocked_ids = sync.fetch_blocked_ids()
             logger.info("Loaded %d blocked businesses (vetados) — will be skipped", len(blocked_ids))
-    except Exception as exc:
-        logger.warning("No se pudo cargar la blocklist: %s", exc)
+        except Exception as exc:
+            logger.warning("No se pudo cargar la blocklist: %s", exc)
 
     for query in queries:
         logger.info("")
@@ -105,8 +115,6 @@ async def run_scrape(args: argparse.Namespace):
     # Sincronizar con el dashboard online (Supabase). Opcional: si no hay .env,
     # se omite y el sistema sigue funcionando solo con Excel.
     try:
-        from src.db import SupabaseSync
-        sync = SupabaseSync.from_env()
         if sync:
             sync.sync_all_from_excel()
         else:
@@ -115,12 +123,16 @@ async def run_scrape(args: argparse.Namespace):
         logger.error("Fallo sincronizando con Supabase: %s", exc, exc_info=True)
 
     # Summary
-    no_web = sum(1 for b in all_new if not (b.get("website") or "").strip())
+    from src.lead_scoring import classify_web
+    from config import WEB_SIN, WEB_REDES
+    estados = [classify_web(b)[0] for b in all_new]
     logger.info("")
     logger.info("──────────────────────────────────────────────────────────")
     logger.info("RUN COMPLETE")
     logger.info("  Total scraped : %d businesses", len(all_new))
-    logger.info("  Without website: %d", no_web)
+    logger.info("  Sin sitio web : %d", estados.count(WEB_SIN))
+    logger.info("  Solo redes    : %d", estados.count(WEB_REDES))
+    logger.info("  Prospectos    : %d", sum(1 for e in estados if e != "con_web"))
     logger.info("  Master file   : %s", MASTER_FILE)
     logger.info("──────────────────────────────────────────────────────────")
 
@@ -131,6 +143,35 @@ def run_refresh():
         logger.error("Master file not found: %s — run scrape mode first.", MASTER_FILE)
         sys.exit(1)
     ExcelManager().refresh_views()
+
+
+def run_rescore():
+    """Recalcula score/prioridad/presencia web/giro de todos los leads con la
+    config actual (la editada desde el dashboard, si hay Supabase) y actualiza
+    Excel + nube."""
+    from src.excel_manager import ExcelManager
+    from src.db import SupabaseSync
+    from src.remote_config import apply_overrides
+    if not MASTER_FILE.exists():
+        logger.error("Master file not found: %s — run scrape mode first.", MASTER_FILE)
+        sys.exit(1)
+
+    sync = SupabaseSync.from_env()
+    if sync:
+        try:
+            apply_overrides(sync.client)
+        except Exception as exc:
+            logger.warning("No se pudo aplicar la config remota (se usan defaults): %s", exc)
+
+    updated = ExcelManager().rescore_all()
+
+    if sync and updated:
+        try:
+            sync.update_scores(updated)
+        except Exception as exc:
+            logger.error("Fallo actualizando scores en Supabase: %s", exc, exc_info=True)
+
+    logger.info("Recálculo completo: %d leads", len(updated))
 
 
 def main():
@@ -144,6 +185,8 @@ def main():
         asyncio.run(run_scrape(args))
     elif args.mode == "refresh":
         run_refresh()
+    elif args.mode == "rescore":
+        run_rescore()
 
 
 if __name__ == "__main__":

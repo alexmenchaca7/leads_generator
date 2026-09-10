@@ -39,10 +39,11 @@ COLUMNS = [
     "lat",
     "lng",
     "maps_url",
-    "no_website",
+    "is_target",
     "lead_score",
     "priority",
-    "website_status",
+    "web_status",
+    "industry",
     "first_seen",
     "last_seen",
     "outreach_status",
@@ -63,10 +64,11 @@ COLUMN_WIDTHS = {
     "lat":            14,
     "lng":            14,
     "maps_url":       55,
-    "no_website":     12,
+    "is_target":      12,
     "lead_score":     12,
     "priority":       10,
-    "website_status": 16,
+    "web_status":     14,
+    "industry":       24,
     "first_seen":     13,
     "last_seen":      13,
     "outreach_status":20,
@@ -85,7 +87,7 @@ _NO_WEB_FILL= PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="s
 _PROTECTED_SHEETS = {"contacted"}
 
 # Sheets that are auto-refreshed (can be rebuilt)
-_AUTO_SHEETS = {"no_website_leads", "high_priority"}
+_AUTO_SHEETS = {"target_leads", "high_priority"}
 
 
 def _safe_save(wb: Workbook, path: Path):
@@ -136,8 +138,8 @@ def _create_new_workbook() -> Workbook:
     _write_headers(ws_raw)
     _apply_dropdowns(ws_raw, COLUMNS)
 
-    ws_no_web = wb.create_sheet("no_website_leads")
-    _write_headers(ws_no_web)
+    ws_target = wb.create_sheet("target_leads")
+    _write_headers(ws_target)
 
     ws_high = wb.create_sheet("high_priority")
     _write_headers(ws_high)
@@ -177,23 +179,41 @@ def _apply_dropdowns(ws, columns: list[str]):
         ws.add_data_validation(dv)
 
 
-def _row_fill(no_website: bool, priority: str):
+def _row_fill(is_target: bool, priority: str):
     """Background fill for a raw_leads row, or None for plain rows."""
-    if no_website and priority == "high":
+    if is_target and priority == "high":
         return _HIGH_FILL
-    if no_website:
+    if is_target:
         return _NO_WEB_FILL
     return None
 
 
+def _to_float(v):
+    try:
+        return float(v) if v is not None and str(v).strip() != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int(v):
+    f = _to_float(v)
+    return int(f) if f is not None else None
+
+
 def _business_to_row(business: dict, first_seen: str, last_seen: str) -> list:
-    no_website = not bool((business.get("website") or "").strip())
+    # is_target / web_status / industry los calcula calculate_score() antes de
+    # llegar aquí (ver add_leads); si el dict no los trae, se derivan al vuelo.
+    scored = business
+    if "web_status" not in business:
+        scored = {**business, **calculate_score(business)}
     row = []
     for col in COLUMNS:
-        if col == "no_website":
-            row.append(no_website)
-        elif col == "website_status":
-            row.append("no_website" if no_website else "has_website")
+        if col == "is_target":
+            row.append(bool(scored.get("is_target")))
+        elif col == "web_status":
+            row.append(scored.get("web_status") or "")
+        elif col == "industry":
+            row.append(scored.get("industry") or "")
         elif col == "first_seen":
             row.append(first_seen)
         elif col == "last_seen":
@@ -216,12 +236,64 @@ class ExcelManager:
         logger.info("Creating new workbook: %s", MASTER_FILE)
         return _create_new_workbook()
 
+    def _migrate_schema(self, wb: Workbook):
+        """Migra un Excel del modelo viejo (no_website / website_status) al nuevo
+        (is_target / web_status / industry).
+
+        Es OBLIGATORIO hacerlo antes de leer nada por posicion: el modelo nuevo
+        agrega la columna `industry`, asi que todas las columnas a partir de ahi
+        se recorren una a la derecha. Si se leyera el archivo viejo con el orden
+        nuevo, `first_seen` se interpretaria como `industry` y todo quedaria
+        corrido. Es idempotente: si ya esta migrado, no hace nada.
+        """
+        # Hoja auto vieja: se borra, `_ensure_sheets` crea `target_leads` y
+        # `_refresh_filtered_sheets` la vuelve a llenar desde raw_leads.
+        if "no_website_leads" in wb.sheetnames:
+            del wb["no_website_leads"]
+            logger.info("Migracion: hoja no_website_leads reemplazada por target_leads")
+
+        if "raw_leads" not in wb.sheetnames:
+            return
+        ws = wb["raw_leads"]
+        headers = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+        if "no_website" not in headers and "website_status" not in headers:
+            return  # ya migrado (o workbook nuevo)
+
+        nw_col = headers.index("no_website") + 1 if "no_website" in headers else None
+        ws_col = headers.index("website_status") + 1 if "website_status" in headers else None
+
+        if nw_col:
+            ws.cell(row=1, column=nw_col).value = "is_target"
+        if ws_col:
+            ws.cell(row=1, column=ws_col).value = "web_status"
+            # Traducir los valores viejos para que el archivo quede coherente
+            # incluso antes de correr un recalculo.
+            for r in range(2, ws.max_row + 1):
+                cell = ws.cell(row=r, column=ws_col)
+                v = str(cell.value or "").strip()
+                if v == "no_website":
+                    cell.value = "sin_web"
+                elif v == "has_website":
+                    cell.value = "con_web"
+            # Insertar `industry` justo despues de `web_status`.
+            if "industry" not in headers:
+                ws.insert_cols(ws_col + 1)
+                ws.cell(row=1, column=ws_col + 1).value = "industry"
+
+        _write_headers(ws)
+        logger.info(
+            "Migracion: raw_leads actualizado a is_target/web_status/industry. "
+            "Corre `python main.py --mode rescore` (o «Recalcular leads» en el "
+            "dashboard) para reclasificar los leads con la config actual."
+        )
+
     def _ensure_sheets(self, wb: Workbook):
         """Make sure all required sheets exist (safe for existing workbooks)."""
+        self._migrate_schema(wb)
         if "raw_leads" not in wb.sheetnames:
             ws = wb.create_sheet("raw_leads", 0)
             _write_headers(ws)
-        for name in ("no_website_leads", "high_priority"):
+        for name in ("target_leads", "high_priority"):
             if name not in wb.sheetnames:
                 ws = wb.create_sheet(name)
                 _write_headers(ws)
@@ -281,12 +353,12 @@ class ExcelManager:
 
         ws.delete_rows(2, ws.max_row - 1)
 
-        web_idx  = COLUMNS.index("website")
-        prio_idx = COLUMNS.index("priority")
+        target_idx = COLUMNS.index("is_target")
+        prio_idx   = COLUMNS.index("priority")
         for row in kept:
             ws.append(row)
-            no_website = not bool(str(row[web_idx] or "").strip())
-            fill = _row_fill(no_website, row[prio_idx])
+            is_target = bool(row[target_idx])
+            fill = _row_fill(is_target, row[prio_idx])
             if fill:
                 rn = ws.max_row
                 for col_idx in range(1, ncols + 1):
@@ -343,10 +415,9 @@ class ExcelManager:
             row_num = ws_raw.max_row + 1
             ws_raw.append(row)
 
-            # Row highlight based on no_website + priority
-            no_website = not bool((biz.get("website") or "").strip())
-            priority   = biz.get("priority", "low")
-            fill = _row_fill(no_website, priority)
+            # Row highlight based on is_target (sin sitio propio) + priority
+            priority = biz.get("priority", "low")
+            fill = _row_fill(bool(biz.get("is_target")), priority)
 
             if fill:
                 for col_idx in range(1, len(COLUMNS) + 1):
@@ -369,7 +440,7 @@ class ExcelManager:
         }
 
     def refresh_views(self):
-        """Rebuild no_website_leads and high_priority from raw_leads without adding data."""
+        """Rebuild target_leads and high_priority from raw_leads without adding data."""
         if not MASTER_FILE.exists():
             logger.error("Master file not found: %s", MASTER_FILE)
             return
@@ -380,6 +451,61 @@ class ExcelManager:
         self._ensure_dropdowns(wb)
         _safe_save(wb, MASTER_FILE)
         logger.info("Filtered sheets refreshed.")
+
+    def rescore_all(self) -> list[dict]:
+        """Recompute is_target/lead_score/priority/web_status/industry for every
+        lead in raw_leads using the CURRENT config (weights, industries, social
+        domains), without touching manual columns or the contacted sheet.
+        Rebuilds the filtered views and returns the updated leads so the caller
+        can sync them to Supabase.
+        """
+        if not MASTER_FILE.exists():
+            logger.error("Master file not found: %s", MASTER_FILE)
+            return []
+        wb = self._load_or_create()
+        self._ensure_sheets(wb)
+        self._compact_raw(wb)
+        ws = wb["raw_leads"]
+        ncols = len(COLUMNS)
+        idx = {c: i for i, c in enumerate(COLUMNS)}
+        updated: list[dict] = []
+
+        for r in range(2, ws.max_row + 1):
+            values = [ws.cell(row=r, column=c + 1).value for c in range(ncols)]
+            if not any(v is not None and str(v).strip() != "" for v in values):
+                continue
+
+            biz = {col: values[idx[col]] for col in COLUMNS}
+            biz["rating"]        = _to_float(biz.get("rating"))
+            biz["reviews_count"] = _to_int(biz.get("reviews_count"))
+
+            result = calculate_score(biz)
+            ws.cell(row=r, column=idx["is_target"] + 1).value  = result["is_target"]
+            ws.cell(row=r, column=idx["lead_score"] + 1).value = result["lead_score"]
+            ws.cell(row=r, column=idx["priority"] + 1).value   = result["priority"]
+            ws.cell(row=r, column=idx["web_status"] + 1).value = result["web_status"]
+            ws.cell(row=r, column=idx["industry"] + 1).value   = result["industry"]
+
+            fill = _row_fill(result["is_target"], result["priority"]) or PatternFill()
+            for c in range(1, ncols + 1):
+                ws.cell(row=r, column=c).fill = fill
+
+            bid = biz.get("business_id")
+            if bid and str(bid).strip():
+                updated.append({
+                    "business_id": str(bid),
+                    "is_target":  result["is_target"],
+                    "lead_score": result["lead_score"],
+                    "priority":   result["priority"],
+                    "web_status": result["web_status"],
+                    "industry":   result["industry"],
+                })
+
+        self._refresh_filtered_sheets(wb)
+        self._ensure_dropdowns(wb)
+        _safe_save(wb, MASTER_FILE)
+        logger.info("Rescored %d leads with current config", len(updated))
+        return updated
 
     def save_snapshot(self, businesses: list[dict]):
         """Write a standalone dated snapshot to data/runs/."""
@@ -414,23 +540,23 @@ class ExcelManager:
         headers = [ws_raw.cell(row=1, column=c).value for c in range(1, len(COLUMNS) + 1)]
 
         try:
-            no_web_idx  = headers.index("no_website")
+            target_idx   = headers.index("is_target")
             priority_idx = headers.index("priority")
         except ValueError:
             logger.warning("Expected columns not found in raw_leads, skipping view refresh.")
             return
 
-        no_web_rows   = []
+        target_rows    = []
         high_prio_rows = []
 
         for row in ws_raw.iter_rows(min_row=2, values_only=True):
-            if row[no_web_idx]:
-                no_web_rows.append(row)
+            if row[target_idx]:
+                target_rows.append(row)
                 if row[priority_idx] == "high":
                     high_prio_rows.append(row)
 
-        self._rebuild_sheet(wb, "no_website_leads", no_web_rows)
-        self._rebuild_sheet(wb, "high_priority",    high_prio_rows)
+        self._rebuild_sheet(wb, "target_leads",  target_rows)
+        self._rebuild_sheet(wb, "high_priority", high_prio_rows)
 
     def _rebuild_sheet(self, wb: Workbook, name: str, rows: list):
         # Safety: never destroy protected sheets

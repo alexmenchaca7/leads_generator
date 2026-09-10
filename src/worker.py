@@ -21,7 +21,7 @@ import asyncio
 import logging
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from config import SCRAPER_CONFIG
 from src.utils import setup_logging
@@ -30,6 +30,33 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 4
 HEARTBEAT_SECONDS = 15
+
+# Limpieza automática del historial para que las tablas no crezcan sin límite.
+PRUNE_EVERY_SECONDS = 3600          # como mucho, una vez por hora
+JOBS_RETENTION_DAYS = 60            # búsquedas terminadas/erróneas más viejas que esto se borran
+ACTIVITY_RETENTION_DAYS = 180       # historial de cambios más viejo que esto se borra
+_last_prune = 0.0
+
+
+def _prune_old(client):
+    """Borra historial viejo (scrape_jobs y activity_log) para no llenar la BD.
+    No toca leads ni la configuración. Throttled a una vez por hora."""
+    global _last_prune
+    now = time.time()
+    if now - _last_prune < PRUNE_EVERY_SECONDS:
+        return
+    _last_prune = now
+    try:
+        jobs_cut = (datetime.now(timezone.utc) - timedelta(days=JOBS_RETENTION_DAYS)).isoformat()
+        client.table("scrape_jobs").delete().lt("created_at", jobs_cut).in_(
+            "status", ["done", "error"]
+        ).execute()
+        act_cut = (datetime.now(timezone.utc) - timedelta(days=ACTIVITY_RETENTION_DAYS)).isoformat()
+        client.table("activity_log").delete().lt("created_at", act_cut).execute()
+        logger.info("Limpieza: historial > %dd (jobs) / %dd (actividad) eliminado",
+                    JOBS_RETENTION_DAYS, ACTIVITY_RETENTION_DAYS)
+    except Exception as exc:
+        logger.debug("Limpieza de historial falló: %s", exc)
 
 
 def _now() -> str:
@@ -75,18 +102,73 @@ def _claim_next_job(client):
     return job if upd.data else None
 
 
+def _run_rescore_job(sync, excel, job):
+    """Recalcula score/prioridad/presencia web/giro de todos los leads con la
+    config actual y los actualiza en Excel y Supabase. Reporta en la cola como
+    cualquier otro trabajo."""
+    client = sync.client
+    job_id = job["id"]
+    logger.info("▶ Trabajo %s: recálculo de scores", job_id[:8])
+    try:
+        updated = excel.rescore_all()
+        n = sync.update_scores(updated) if updated else 0
+
+        client.table("scrape_jobs").update({
+            "status": "done",
+            "new_count": 0,
+            "dup_count": 0,
+            "message": f"{len(updated)} leads recalculados",
+            "finished_at": _now(),
+        }).eq("id", job_id).execute()
+
+        try:
+            client.table("activity_log").insert({
+                "user_email": job.get("requested_by") or "",
+                "action": "rescore",
+                "business_id": None,
+                "business_name": f"{len(updated)} leads recalculados",
+                "changes": {"updated": len(updated), "synced": n},
+            }).execute()
+        except Exception as exc:
+            logger.debug("No se pudo registrar en activity_log: %s", exc)
+
+        logger.info("✓ Trabajo %s listo: %d leads recalculados", job_id[:8], len(updated))
+    except Exception as exc:
+        logger.error("✗ Trabajo %s (recálculo) falló: %s", job_id[:8], exc, exc_info=True)
+        client.table("scrape_jobs").update(
+            {"status": "error", "message": str(exc)[:300], "finished_at": _now()}
+        ).eq("id", job_id).execute()
+    finally:
+        client.table("worker_status").upsert(
+            {"id": 1, "last_seen": _now(), "current_job": None}, on_conflict="id"
+        ).execute()
+
+
 def _run_job(sync, excel, job):
     from src.scraper import GoogleMapsScraper
+    from src.remote_config import apply_overrides
 
     client = sync.client
     job_id = job["id"]
     query = job["query"]
-    max_results = int(job.get("max_results") or SCRAPER_CONFIG["max_results_per_query"])
 
-    logger.info("▶ Trabajo %s: '%s' (máx %d)", job_id[:8], query, max_results)
     client.table("worker_status").upsert(
         {"id": 1, "last_seen": _now(), "current_job": job_id}, on_conflict="id"
     ).execute()
+
+    # Tomar la config más reciente editada desde el dashboard antes de trabajar.
+    try:
+        apply_overrides(client)
+    except Exception as exc:
+        logger.warning("No se pudo aplicar config remota: %s", exc)
+
+    # Trabajo especial: recalcular scores de todos los leads (no scrapea).
+    if (query or "").strip() == "__rescore__":
+        _run_rescore_job(sync, excel, job)
+        return
+
+    max_results = int(job.get("max_results") or SCRAPER_CONFIG["max_results_per_query"])
+    logger.info("▶ Trabajo %s: '%s' (máx %d)", job_id[:8], query, max_results)
 
     try:
         blocked_ids = sync.fetch_blocked_ids()
@@ -172,6 +254,7 @@ def main():
 
     excel = ExcelManager()
     _start_heartbeat(sync.client)
+    _prune_old(sync.client)  # limpieza inicial del historial viejo
     logger.info("Worker en línea. %s", "Procesando pendientes…" if args.once else "Esperando búsquedas…")
 
     while True:
@@ -188,6 +271,7 @@ def main():
         if args.once:
             logger.info("No hay más trabajos pendientes. Fin.")
             return
+        _prune_old(sync.client)  # throttled: como mucho 1 vez/hora cuando está ocioso
         time.sleep(POLL_SECONDS)
 
 

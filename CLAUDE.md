@@ -138,7 +138,10 @@ succeed with no `.env` — the Supabase sync is skipped and only Excel is writte
   the same filters, search, KPIs, realtime and `updateLead`, so a board drag is just an ordinary
   lead update and lands in `activity_log` like any other (and is undoable from the history).
   Dragging uses native HTML5 DnD — desktop only; on phones the card modal's "Columna" select is how
-  you move a card, which is why it must stay.
+  you move a card, which is why it must stay. The board has its own sort control (score, rating,
+  reviews, follow-up, industry, name) on top of the shared filters; picking anything but "Manual"
+  overrides `board_position`, so dragging then only changes column and the card highlights whichever
+  field is driving the order.
 - `CardModal.tsx` is the card detail: labels, follow-up date, the `notes` field, a per-lead comment
   timeline (`lead_comments`), and image/PDF attachments (`lead_attachments` + Storage), with
   drag-drop and Ctrl+V paste upload. The first image doubles as the card's cover on the board.
@@ -191,6 +194,11 @@ the Excel, exactly like every other dashboard-owned field, so the scraper never 
   `SUPABASE_SERVICE_KEY` — secret, scraper) vs `dashboard/.env.local`
   (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — public; plus
   `SUPABASE_SERVICE_ROLE_KEY` — secret, server-only). Never commit either.
+- **PostgREST caps every query at 1000 rows.** It does not error — it just returns fewer, so the
+  dashboard silently stops seeing leads past that count. `app/dashboard/page.tsx` pages through with
+  `.range()` until a chunk comes back short, ordering by `lead_score` **plus `business_id`** as a
+  tiebreaker so rows can't shuffle between chunks and get duplicated or dropped. Any new
+  "fetch everything" query needs the same treatment.
 - **`board_position` is a fractional index, not a row number.** Dropping a card between two others
   stores the midpoint of its neighbours, so a move rewrites one row instead of renumbering the
   column. `NULL` means "nobody has ordered this by hand yet": `LeadsBoard.effPos()` maps null to a

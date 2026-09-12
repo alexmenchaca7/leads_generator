@@ -11,16 +11,37 @@ import { Logo } from "./ui";
 
 export const dynamic = "force-dynamic";
 
+// Supabase (PostgREST) devuelve como máximo 1000 filas por consulta, sin avisar:
+// pasando ese número el dashboard simplemente dejaba de ver leads. Aquí se piden
+// por tandas hasta que una venga incompleta. El desempate por business_id es
+// necesario: sin él, dos leads con el mismo score pueden cambiar de orden entre
+// tandas y colarse repetidos o perderse.
+async function fetchAllLeads(
+  supabase: Awaited<ReturnType<typeof createClient>>
+): Promise<{ data: Lead[]; error: { message: string } | null }> {
+  const CHUNK = 1000;
+  const all: Lead[] = [];
+  for (let from = 0; ; from += CHUNK) {
+    const { data, error } = await supabase
+      .from("leads")
+      .select("*")
+      .order("lead_score", { ascending: false })
+      .order("business_id", { ascending: true })
+      .range(from, from + CHUNK - 1);
+    if (error) return { data: all, error };
+    all.push(...((data ?? []) as Lead[]));
+    if (!data || data.length < CHUNK) break;
+  }
+  return { data: all, error: null };
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient();
 
   const { data: { user } } = await supabase.auth.getUser();
   const userEmail = user?.email ?? "";
 
-  const { data: leads, error } = await supabase
-    .from("leads")
-    .select("*")
-    .order("lead_score", { ascending: false });
+  const { data: leads, error } = await fetchAllLeads(supabase);
 
   const { data: configRows } = await supabase.from("app_config").select("key,value");
   const config = mergeConfig(configRows);
@@ -74,7 +95,7 @@ export default async function DashboardPage() {
           Error cargando datos: {error.message}
         </div>
       ) : (
-        <LeadsTable initialLeads={(leads ?? []) as Lead[]} userEmail={userEmail} config={config} />
+        <LeadsTable initialLeads={leads} userEmail={userEmail} config={config} />
       )}
     </main>
   );

@@ -17,9 +17,9 @@ import { PhoneLink, WhatsAppLink } from "./ui";
 import CardModal from "./CardModal";
 
 // ── Orden dentro de la columna ────────────────────────────────────────────────
-// Las posiciones son fraccionarias: al soltar una tarjeta entre otras dos se le
-// asigna el punto medio, así mover una tarjeta solo reescribe ESA fila en vez de
-// renumerar toda la columna.
+// En modo manual las posiciones son fraccionarias: al soltar una tarjeta entre
+// otras dos se le asigna el punto medio, así mover una tarjeta solo reescribe
+// ESA fila en vez de renumerar la columna.
 const STEP = 1000;
 
 // Un lead recién scrapeado todavía no tiene board_position. En vez de mandarlo
@@ -31,10 +31,48 @@ function effPos(l: Lead): number {
   return l.board_position ?? NULL_ANCHOR + (100 - (l.lead_score ?? 0));
 }
 
-function sortColumn(arr: Lead[]): Lead[] {
+export type SortMode = "manual" | "score" | "rating" | "reviews" | "name" | "industry" | "follow_up";
+
+const SORTS: { key: SortMode; label: string }[] = [
+  { key: "manual", label: "Manual (como los acomodes)" },
+  { key: "score", label: "Score — mayor primero" },
+  { key: "rating", label: "Rating — mejor primero" },
+  { key: "reviews", label: "Reseñas — más primero" },
+  { key: "follow_up", label: "Seguimiento — más próximo" },
+  { key: "industry", label: "Industria — A-Z" },
+  { key: "name", label: "Nombre — A-Z" },
+];
+
+const num = (v: number | null | undefined) => (v === null || v === undefined ? -1 : v);
+const txt = (v: string | null | undefined) => (v && v.trim() ? v : "￿"); // vacío al final
+
+function compare(mode: SortMode, a: Lead, b: Lead): number {
+  switch (mode) {
+    case "score":
+      return num(b.lead_score) - num(a.lead_score);
+    case "rating":
+      return num(b.rating) - num(a.rating);
+    case "reviews":
+      return num(b.reviews_count) - num(a.reviews_count);
+    case "name":
+      return a.name.localeCompare(b.name, "es", { numeric: true });
+    case "industry":
+      return txt(a.industry).localeCompare(txt(b.industry), "es");
+    case "follow_up":
+      // Sin fecha al final: lo que urge es lo que ya tiene día puesto.
+      return txt(a.follow_up).localeCompare(txt(b.follow_up), "es");
+    default:
+      return effPos(a) - effPos(b);
+  }
+}
+
+function sortColumn(arr: Lead[], mode: SortMode): Lead[] {
   return [...arr].sort((a, b) => {
-    const d = effPos(a) - effPos(b);
+    const d = compare(mode, a, b);
     if (d !== 0) return d;
+    // Desempates: primero el mejor prospecto, luego algo estable.
+    const s = num(b.lead_score) - num(a.lead_score);
+    if (s !== 0 && mode !== "manual") return s;
     return a.business_id.localeCompare(b.business_id);
   });
 }
@@ -50,7 +88,10 @@ const COL_STYLES: Record<string, { bar: string; text: string; ring: string }> = 
 };
 const DEFAULT_COL = { bar: "bg-slate-500", text: "text-slate-300", ring: "ring-slate-500/40" };
 
-const PAGE = 25; // tarjetas visibles por columna antes de "mostrar más"
+// Tope de tarjetas dibujadas por columna. Existe por rendimiento (miles de
+// tarjetas en el DOM traban el arrastre), pero la columna SIEMPRE dice cuántas
+// hay en total para que nunca parezca que faltan leads.
+const PAGE = 50;
 
 type Over = { status: string; index: number } | null;
 
@@ -77,6 +118,7 @@ export default function LeadsBoard({
   const [over, setOver] = useState<Over>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [limits, setLimits] = useState<Record<string, number>>({});
+  const [sortMode, setSortMode] = useState<SortMode>("manual");
 
   // Conteos de la bitácora y adjuntos de cada tarjeta (para los contadores del
   // pie y la portada). Se piden ligeros: solo las columnas que se usan.
@@ -84,6 +126,17 @@ export default function LeadsBoard({
   const [attachments, setAttachments] = useState<Record<string, LeadAttachment[]>>({});
 
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const manual = sortMode === "manual";
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("board_sort") as SortMode | null;
+    if (saved && SORTS.some((s) => s.key === saved)) setSortMode(saved);
+  }, []);
+
+  function changeSort(v: SortMode) {
+    setSortMode(v);
+    window.localStorage.setItem("board_sort", v);
+  }
 
   const loadMeta = useCallback(async () => {
     const [{ data: cRows }, { data: aRows }] = await Promise.all([
@@ -124,9 +177,9 @@ export default function LeadsBoard({
       const s = l.outreach_status && map[l.outreach_status] !== undefined ? l.outreach_status : fallback;
       map[s]?.push(l);
     }
-    for (const s of statuses) map[s] = sortColumn(map[s] ?? []);
+    for (const s of statuses) map[s] = sortColumn(map[s] ?? [], sortMode);
     return map;
-  }, [leads, statuses]);
+  }, [leads, statuses, sortMode]);
 
   const dragged = dragId ? leads.find((l) => l.business_id === dragId) ?? null : null;
 
@@ -136,6 +189,13 @@ export default function LeadsBoard({
     setDragId(null);
     setOver(null);
     if (!lead) return;
+
+    // Con un orden automático activo la posición manual no se respetaría, así
+    // que arrastrar solo sirve para cambiar de columna.
+    if (!manual) {
+      if (lead.outreach_status !== status) await onUpdate(lead.business_id, { outreach_status: status });
+      return;
+    }
 
     // La columna destino SIN la tarjeta que se está moviendo: sobre esa lista se
     // calculan los vecinos del hueco donde se soltó.
@@ -198,21 +258,48 @@ export default function LeadsBoard({
 
   return (
     <>
+      {/* Barra del tablero: criterio de orden y total en pantalla */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-slate-800 bg-slate-900 p-3">
+        <label className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">Ordenar tarjetas por</span>
+          <select
+            value={sortMode}
+            onChange={(e) => changeSort(e.target.value as SortMode)}
+            className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 outline-none focus:border-indigo-500"
+          >
+            {SORTS.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <span className="text-xs text-slate-500">
+          {manual
+            ? "Arrastra para reordenar y para cambiar de columna."
+            : "Arrastra para cambiar de columna; el orden lo manda el criterio elegido."}
+        </span>
+
+        <span className="ml-auto whitespace-nowrap text-xs tabular-nums text-slate-400">
+          {leads.length} negocios
+        </span>
+      </div>
+
       <div
         ref={scrollerRef}
-        className="flex gap-3 overflow-x-auto pb-3"
+        className="mt-3 flex gap-3 overflow-x-auto pb-3"
         onDragOver={(e) => edgeScroll(e.clientX)}
       >
         {statuses.map((status) => {
           const items = columns[status] ?? [];
           const limit = limits[status] ?? PAGE;
+          const shown = Math.min(limit, items.length);
           const style = COL_STYLES[status] ?? DEFAULT_COL;
           const isOver = over?.status === status;
           // Cuenta solo lo renderizado: indexFromPointer mide el DOM, así que si
           // la columna está recortada por `limit` ambos tienen que coincidir.
-          const renderedRest = items.slice(0, limits[status] ?? PAGE).filter(
-            (x) => x.business_id !== dragId
-          ).length;
+          const renderedRest = items.slice(0, limit).filter((x) => x.business_id !== dragId).length;
 
           return (
             <section
@@ -221,23 +308,30 @@ export default function LeadsBoard({
                 isOver ? `border-transparent ring-2 ${style.ring}` : "border-slate-800"
               }`}
             >
-              {/* Encabezado de columna */}
-              <header className="flex items-center gap-2 border-b border-slate-800 px-3 py-2.5">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${style.bar}`} />
-                <h3 className={`min-w-0 flex-1 truncate text-sm font-semibold ${style.text}`}>{status}</h3>
-                <span className="shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-xs tabular-nums text-slate-400">
-                  {items.length}
-                </span>
+              {/* Encabezado de columna: el total siempre visible */}
+              <header className="border-b border-slate-800 px-3 py-2.5">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${style.bar}`} />
+                  <h3 className={`min-w-0 flex-1 truncate text-sm font-semibold ${style.text}`}>{status}</h3>
+                  <span className="shrink-0 rounded-md bg-slate-800 px-1.5 py-0.5 text-xs tabular-nums text-slate-300">
+                    {items.length}
+                  </span>
+                </div>
+                {shown < items.length && (
+                  <p className="mt-1 text-[11px] tabular-nums text-slate-500">
+                    mostrando {shown} de {items.length}
+                  </p>
+                )}
               </header>
 
               {/* Lista de tarjetas */}
               <div
                 className="min-h-[120px] flex-1 space-y-2 overflow-y-auto p-2"
-                style={{ maxHeight: "calc(100dvh - 340px)" }}
+                style={{ maxHeight: "calc(100dvh - 380px)" }}
                 onDragOver={(e) => {
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
-                  const idx = indexFromPointer(e.currentTarget, e.clientY);
+                  const idx = manual ? indexFromPointer(e.currentTarget, e.clientY) : 0;
                   setOver((prev) =>
                     prev && prev.status === status && prev.index === idx ? prev : { status, index: idx }
                   );
@@ -249,7 +343,7 @@ export default function LeadsBoard({
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
-                  const idx = indexFromPointer(e.currentTarget, e.clientY);
+                  const idx = manual ? indexFromPointer(e.currentTarget, e.clientY) : 0;
                   drop(status, idx);
                 }}
               >
@@ -260,12 +354,13 @@ export default function LeadsBoard({
                     ? items.slice(0, i).filter((x) => x.business_id !== dragId).length
                     : i;
                   const showLine =
-                    isOver && dragId !== null && over?.index === visualIndex && l.business_id !== dragId;
+                    manual && isOver && dragId !== null && over?.index === visualIndex && l.business_id !== dragId;
                   return (
                     <div key={l.business_id}>
                       {showLine && <DropLine />}
                       <BoardCard
                         lead={l}
+                        sortMode={sortMode}
                         dragging={dragId === l.business_id}
                         comments={commentCounts[l.business_id] ?? 0}
                         files={attachments[l.business_id] ?? []}
@@ -285,7 +380,7 @@ export default function LeadsBoard({
                 })}
 
                 {/* Línea al final de lo visible en la columna */}
-                {isOver && dragId !== null && over?.index === renderedRest && <DropLine />}
+                {manual && isOver && dragId !== null && over?.index === renderedRest && <DropLine />}
 
                 {items.length === 0 && (
                   <p className="px-2 py-6 text-center text-xs text-slate-600">
@@ -294,12 +389,21 @@ export default function LeadsBoard({
                 )}
 
                 {items.length > limit && (
-                  <button
-                    onClick={() => setLimits((p) => ({ ...p, [status]: limit + PAGE }))}
-                    className="w-full rounded-lg border border-slate-700 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
-                  >
-                    Mostrar {Math.min(PAGE, items.length - limit)} más de {items.length - limit}
-                  </button>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setLimits((p) => ({ ...p, [status]: limit + PAGE }))}
+                      className="flex-1 rounded-lg border border-slate-700 py-1.5 text-xs text-slate-300 hover:bg-slate-800"
+                    >
+                      Ver {Math.min(PAGE, items.length - limit)} más
+                    </button>
+                    <button
+                      onClick={() => setLimits((p) => ({ ...p, [status]: items.length }))}
+                      className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-800"
+                      title={`Dibujar las ${items.length} tarjetas`}
+                    >
+                      todas
+                    </button>
+                  </div>
                 )}
               </div>
             </section>
@@ -337,8 +441,15 @@ function DropLine() {
 }
 
 // ── Tarjeta del tablero ────────────────────────────────────────────────────────
+const CHIP = "rounded px-1.5 py-0.5 text-[10px] tabular-nums";
+const CHIP_OFF = "bg-slate-700/60 text-slate-300";
+// El dato por el que se está ordenando va resaltado: así se ve de un vistazo por
+// qué esta tarjeta quedó arriba de la otra.
+const CHIP_ON = "bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-500/50 font-semibold";
+
 function BoardCard({
   lead: l,
+  sortMode,
   dragging,
   comments,
   files,
@@ -347,6 +458,7 @@ function BoardCard({
   onDragEnd,
 }: {
   lead: Lead;
+  sortMode: SortMode;
   dragging: boolean;
   comments: number;
   files: LeadAttachment[];
@@ -358,6 +470,7 @@ function BoardCard({
   const cover = files.find((f) => (f.mime ?? "").startsWith("image/"));
   const labels = (l.board_labels ?? []).map((k) => BOARD_LABEL_MAP[k]).filter(Boolean);
   const status = l.web_status ?? WEB_PROPIO;
+  const on = (m: SortMode) => (sortMode === m ? CHIP_ON : CHIP_OFF);
 
   // Borde izquierdo por presencia web: verde = sin sitio propio (mejor
   // prospecto), ámbar = solo redes.
@@ -396,23 +509,35 @@ function BoardCard({
         <div>
           <h4 className="text-sm font-medium leading-snug text-slate-100">{l.name}</h4>
           {(l.industry || l.category) && (
-            <p className="truncate text-[11px] text-slate-500">{l.industry || l.category}</p>
+            <p
+              className={`truncate text-[11px] ${
+                sortMode === "industry" ? "font-semibold text-indigo-300" : "text-slate-500"
+              }`}
+            >
+              {l.industry || l.category}
+            </p>
           )}
         </div>
 
+        {/* Señales. La del criterio de orden va resaltada. */}
         <div className="flex flex-wrap items-center gap-1">
-          <span
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${WEB_STYLES[status] ?? WEB_STYLES[WEB_PROPIO]}`}
-          >
+          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${WEB_STYLES[status] ?? WEB_STYLES[WEB_PROPIO]}`}>
             {WEB_LABELS[status] ?? "—"}
           </span>
-          <span className="rounded bg-slate-700/60 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-300">
+          <span className={`${CHIP} ${on("score")}`} title="Score del lead">
             {l.lead_score} pts
           </span>
           {l.rating ? (
-            <span className="rounded bg-slate-700/60 px-1.5 py-0.5 text-[10px] tabular-nums text-amber-300">
+            <span
+              className={`${CHIP} ${sortMode === "rating" ? CHIP_ON : "bg-slate-700/60 text-amber-300"}`}
+              title="Calificación en Google Maps"
+            >
               ★ {l.rating}
-              {l.reviews_count ? <span className="text-slate-500"> ({l.reviews_count})</span> : null}
+            </span>
+          ) : null}
+          {l.reviews_count ? (
+            <span className={`${CHIP} ${on("reviews")}`} title="Reseñas en Google Maps">
+              {l.reviews_count} reseñas
             </span>
           ) : null}
         </div>
@@ -432,7 +557,12 @@ function BoardCard({
         {(l.follow_up || l.notes || comments > 0 || files.length > 0) && (
           <div className="flex flex-wrap items-center gap-2.5 border-t border-slate-700/60 pt-1.5 text-[11px] text-slate-500">
             {l.follow_up && (
-              <span className="inline-flex items-center gap-1 tabular-nums" title="Seguimiento">
+              <span
+                className={`inline-flex items-center gap-1 tabular-nums ${
+                  sortMode === "follow_up" ? "font-semibold text-indigo-300" : ""
+                }`}
+                title="Fecha de seguimiento"
+              >
                 <CalIcon /> {l.follow_up.slice(5)}
               </span>
             )}

@@ -18,6 +18,7 @@ const SIZES: Record<string, string> = {
   md: "max-w-lg",
   lg: "max-w-xl",
   xl: "max-w-2xl",
+  "2xl": "max-w-4xl",
 };
 
 export function Modal({
@@ -27,7 +28,7 @@ export function Modal({
 }: {
   onClose: () => void;
   children: React.ReactNode;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: "sm" | "md" | "lg" | "xl" | "2xl";
 }) {
   // Bloquea el scroll del fondo SIN saltar al inicio: fija el <body> en su
   // posición actual (técnica estándar para iOS, donde overflow:hidden en <html>

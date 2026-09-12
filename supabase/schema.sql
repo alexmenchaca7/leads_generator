@@ -195,6 +195,68 @@ create policy "app_config_auth_all" on public.app_config
     using (true)
     with check (true);
 
+-- ── Tablero (kanban): orden, etiquetas, notas e imágenes por tarjeta ────────
+-- Posición fraccionaria dentro de la columna: al soltar una tarjeta entre otras
+-- dos se le asigna el punto medio, así mover una tarjeta solo reescribe ESA
+-- fila. NULL = sin ordenar a mano (el tablero las manda al inicio por score).
+alter table public.leads add column if not exists board_position double precision;
+alter table public.leads add column if not exists board_labels   text[] default '{}';
+create index if not exists leads_board_idx on public.leads (outreach_status, board_position);
+
+-- Bitácora de la tarjeta: cada nota es un renglón con autor y fecha (distinto
+-- de leads.notes, que es un solo texto libre que se sobreescribe).
+create table if not exists public.lead_comments (
+    id          uuid primary key default gen_random_uuid(),
+    business_id text references public.leads(business_id) on delete cascade,
+    user_email  text default '',
+    body        text not null default '',
+    created_at  timestamptz default now()
+);
+create index if not exists lead_comments_biz_idx on public.lead_comments (business_id, created_at desc);
+
+-- Imágenes/archivos de la tarjeta. El archivo vive en Storage (bucket
+-- `lead-files`); aquí queda la referencia para listarlo y borrarlo.
+create table if not exists public.lead_attachments (
+    id          uuid primary key default gen_random_uuid(),
+    business_id text references public.leads(business_id) on delete cascade,
+    user_email  text default '',
+    path        text not null,
+    url         text not null default '',
+    name        text default '',
+    mime        text default '',
+    size        integer,
+    created_at  timestamptz default now()
+);
+create index if not exists lead_attachments_biz_idx on public.lead_attachments (business_id, created_at desc);
+
+alter table public.lead_comments    enable row level security;
+alter table public.lead_attachments enable row level security;
+
+drop policy if exists "lead_comments_auth_all" on public.lead_comments;
+create policy "lead_comments_auth_all" on public.lead_comments
+    for all to authenticated using (true) with check (true);
+
+drop policy if exists "lead_attachments_auth_all" on public.lead_attachments;
+create policy "lead_attachments_auth_all" on public.lead_attachments
+    for all to authenticated using (true) with check (true);
+
+-- Bucket de Storage para las imágenes de las tarjetas: lectura pública (para
+-- que la <img> cargue directo), subir y borrar solo con sesión.
+insert into storage.buckets (id, name, public)
+values ('lead-files', 'lead-files', true)
+on conflict (id) do update set public = true;
+
+drop policy if exists "lead_files_read"   on storage.objects;
+drop policy if exists "lead_files_insert" on storage.objects;
+drop policy if exists "lead_files_delete" on storage.objects;
+
+create policy "lead_files_read" on storage.objects
+    for select using (bucket_id = 'lead-files');
+create policy "lead_files_insert" on storage.objects
+    for insert to authenticated with check (bucket_id = 'lead-files');
+create policy "lead_files_delete" on storage.objects
+    for delete to authenticated using (bucket_id = 'lead-files');
+
 -- ── Realtime: el dashboard recibe cambios en vivo ───────────────────────────
 -- Se ejecuta AL FINAL, cuando todas las tablas ya existen.
 -- (ignora el error "already member" si lo corres dos veces)
@@ -222,6 +284,14 @@ begin
     end;
     begin
         alter publication supabase_realtime add table public.app_config;
+    exception when duplicate_object then null;
+    end;
+    begin
+        alter publication supabase_realtime add table public.lead_comments;
+    exception when duplicate_object then null;
+    end;
+    begin
+        alter publication supabase_realtime add table public.lead_attachments;
     exception when duplicate_object then null;
     end;
 end $$;

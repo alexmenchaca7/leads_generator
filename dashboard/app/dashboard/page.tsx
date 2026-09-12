@@ -45,6 +45,13 @@ export default async function DashboardPage() {
               + Buscar
             </Link>
             <Link
+              href="/guia"
+              title="Guiones de WhatsApp y proceso de venta"
+              className="rounded-lg border border-slate-700 px-3 py-2 text-center text-sm font-semibold text-slate-300 hover:bg-slate-800"
+            >
+              📘 Guía
+            </Link>
+            <Link
               href="/config"
               className="rounded-lg border border-slate-700 px-3 py-2 text-center text-sm font-semibold text-slate-300 hover:bg-slate-800"
             >

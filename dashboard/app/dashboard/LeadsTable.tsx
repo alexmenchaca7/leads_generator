@@ -8,6 +8,7 @@ import { cleanPhone, siteHost } from "@/lib/clean";
 import EditModal from "./EditModal";
 import BlocklistModal from "./BlocklistModal";
 import ActivityModal from "./ActivityModal";
+import LeadsBoard from "./LeadsBoard";
 import { ScoreInfoButton } from "./ScoreInfo";
 
 const PRIORITY_STYLES: Record<string, string> = {
@@ -61,6 +62,8 @@ export default function LeadsTable({
   const [saving, setSaving] = useState<string | null>(null);
   const [notesLead, setNotesLead] = useState<Lead | null>(null);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  // Vista activa: tabla (todo el detalle) o tablero kanban (el embudo).
+  const [view, setView] = useState<"tabla" | "tablero">("tabla");
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [editState, setEditState] = useState<{ mode: "edit" | "create"; lead: Lead | null } | null>(null);
@@ -79,7 +82,7 @@ export default function LeadsTable({
 
   // Registra un cambio en el log de actividad (auditoría compartida).
   async function logActivity(
-    action: "update" | "create" | "delete" | "recover" | "purge",
+    action: string,
     business_id: string | null,
     business_name: string,
     changes: Record<string, unknown> | null
@@ -136,6 +139,20 @@ export default function LeadsTable({
       setPageSize(10);
     }
   }, []);
+
+  // Recuerda la ultima vista usada (por navegador, no por usuario).
+  useEffect(() => {
+    const saved = window.localStorage.getItem("leads_view");
+    if (saved === "tablero" || saved === "tabla") setView(saved);
+  }, []);
+
+  function changeView(v: "tabla" | "tablero") {
+    setView(v);
+    window.localStorage.setItem("leads_view", v);
+    // El tablero no tiene casillas de seleccion: evita dejar una barra de
+    // acciones masivas apuntando a filas que ya no se ven.
+    if (v === "tablero") setSelected(new Set());
+  }
 
   useEffect(() => {
     setPage(1);
@@ -293,6 +310,13 @@ export default function LeadsTable({
     );
   }
 
+  // Las columnas del tablero salen de /config para que sigan a lo que el
+  // usuario configuro; si quedara vacio, usa las opciones de siempre.
+  const boardStatuses = useMemo(() => {
+    const fromConfig = config.dropdown_options?.outreach_status ?? [];
+    return fromConfig.length > 0 ? fromConfig : OUTREACH_OPTIONS;
+  }, [config]);
+
   const categories = useMemo(
     () =>
       Array.from(new Set(leads.map((l) => l.category).filter(Boolean))).sort() as string[],
@@ -418,6 +442,12 @@ export default function LeadsTable({
           >
             Historial
           </button>
+
+          {/* Tabla = todo el detalle. Tablero = el embudo, para arrastrar. */}
+          <div className="col-span-3 flex rounded-lg border border-slate-700 p-0.5 sm:col-span-1 sm:ml-auto">
+            <ViewTab active={view === "tabla"} onClick={() => changeView("tabla")} label="Tabla" />
+            <ViewTab active={view === "tablero"} onClick={() => changeView("tablero")} label="Tablero" />
+          </div>
         </div>
 
         {/* Búsqueda */}
@@ -549,6 +579,19 @@ export default function LeadsTable({
         </div>
       )}
 
+      {view === "tablero" ? (
+        <LeadsBoard
+          leads={filtered}
+          supabase={supabase}
+          userEmail={userEmail}
+          statuses={boardStatuses}
+          onUpdate={updateLead}
+          onEdit={(l) => setEditState({ mode: "edit", lead: l })}
+          onDelete={(l) => setConfirmLead(l)}
+          notify={notify}
+        />
+      ) : (
+        <>
       {/* ── ESCRITORIO: tabla ──────────────────────────────────────────────── */}
       <div className="hidden overflow-x-auto rounded-xl border border-slate-800 bg-slate-900 lg:block">
         <table className="w-full min-w-[1040px] table-fixed text-sm">
@@ -714,6 +757,8 @@ export default function LeadsTable({
           <PageBtn onClick={() => changePage(totalPages)} disabled={current === totalPages}>»</PageBtn>
         </div>
       </div>
+        </>
+      )}
 
       {/* Modales */}
       {notesLead && (
@@ -1053,6 +1098,19 @@ function FilterSelect({
         {options.map(([v, t]) => (<option key={v} value={v}>{t}</option>))}
       </select>
     </label>
+  );
+}
+
+function ViewTab({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-1 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition ${
+        active ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 

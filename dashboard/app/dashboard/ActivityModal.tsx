@@ -41,9 +41,16 @@ const FIELD_LABELS: Record<string, string> = {
   is_target: "Prospecto",
   web_status: "Presencia web",
   industry: "Industria",
+  board_labels: "Etiquetas",
+  board_position: "Posición en el tablero",
 };
 
+// La posición dentro de la columna es plomería del tablero: se guarda para poder
+// deshacer el movimiento, pero enseñar "1000 → 1500" no le dice nada a nadie.
+const HIDDEN_FIELDS = new Set(["board_position"]);
+
 function show(v: unknown): string {
+  if (Array.isArray(v)) return v.length ? v.join(", ") : "(ninguna)";
   if (v === null || v === undefined || v === "") return "(vacío)";
   const s = String(v);
   return s.length > 40 ? s.slice(0, 40) + "…" : s;
@@ -67,6 +74,8 @@ const ACTION_VERB: Record<string, string> = {
   scrape: "agregó por búsqueda",
   purge: "borró definitivamente",
   rescore: "recalculó",
+  comment: "anotó en la bitácora de",
+  attach: "subió un archivo a",
 };
 
 export default function ActivityModal({
@@ -196,21 +205,40 @@ export default function ActivityModal({
                     </span>
                   </div>
 
-                  {r.action === "update" && r.changes && (
-                    <ul className="mt-1 space-y-0.5">
-                      {Object.entries(r.changes).map(([field, raw]) => {
-                        const ch = raw as Change;
-                        return (
-                          <li key={field} className="text-xs text-slate-400">
-                            <span className="text-slate-500">
-                              {FIELD_LABELS[field] ?? field}:
-                            </span>{" "}
-                            {show(ch.old)} <span className="text-slate-600">→</span>{" "}
-                            <span className="text-slate-300">{show(ch.new)}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                  {r.action === "update" && r.changes && (() => {
+                    const shown = Object.entries(r.changes).filter(
+                      ([field]) => !HIDDEN_FIELDS.has(field)
+                    );
+                    if (shown.length === 0) {
+                      return (
+                        <p className="mt-1 text-xs text-slate-500">
+                          cambió el orden de la tarjeta en el tablero
+                        </p>
+                      );
+                    }
+                    return (
+                      <ul className="mt-1 space-y-0.5">
+                        {shown.map(([field, raw]) => {
+                          const ch = raw as Change;
+                          return (
+                            <li key={field} className="text-xs text-slate-400">
+                              <span className="text-slate-500">
+                                {FIELD_LABELS[field] ?? field}:
+                              </span>{" "}
+                              {show(ch.old)} <span className="text-slate-600">→</span>{" "}
+                              <span className="text-slate-300">{show(ch.new)}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    );
+                  })()}
+
+                  {r.action === "comment" && typeof r.changes?.nota === "string" && (
+                    <p className="mt-1 truncate text-xs text-slate-400">“{r.changes.nota}”</p>
+                  )}
+                  {r.action === "attach" && typeof r.changes?.archivo === "string" && (
+                    <p className="mt-1 truncate text-xs text-slate-400">{r.changes.archivo}</p>
                   )}
 
                   <div className="mt-1 text-[11px] text-slate-600">

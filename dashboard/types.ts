@@ -21,8 +21,52 @@ export type Lead = {
   contacted: string;
   follow_up: string | null;
   notes: string | null;
+  // Tablero (kanban): posición dentro de su columna y etiquetas de color.
+  // board_position NULL = lead nuevo que nadie ha ordenado a mano todavía.
+  board_position: number | null;
+  board_labels: string[] | null;
   updated_at: string;
 };
+
+// ── Tablero ───────────────────────────────────────────────────────────────────
+// Una nota de la bitácora de la tarjeta (tabla lead_comments). A diferencia de
+// Lead.notes —un solo texto que se sobreescribe— aquí cada nota es un renglón
+// nuevo con autor y fecha, así queda la conversación completa.
+export type LeadComment = {
+  id: string;
+  business_id: string;
+  user_email: string;
+  body: string;
+  created_at: string;
+};
+
+// Imagen o archivo adjunto a la tarjeta (tabla lead_attachments + Storage).
+export type LeadAttachment = {
+  id: string;
+  business_id: string;
+  user_email: string;
+  path: string;
+  url: string;
+  name: string;
+  mime: string;
+  size: number | null;
+  created_at: string;
+};
+
+export const BOARD_BUCKET = "lead-files";
+
+// Etiquetas de color de la tarjeta. La clave es lo que se guarda en
+// leads.board_labels; el resto es solo presentación.
+export const BOARD_LABELS: { key: string; label: string; dot: string; chip: string }[] = [
+  { key: "urgente",   label: "Urgente",        dot: "bg-red-500",     chip: "bg-red-500/15 text-red-300 ring-red-500/30" },
+  { key: "propuesta", label: "Propuesta lista", dot: "bg-violet-500",  chip: "bg-violet-500/15 text-violet-300 ring-violet-500/30" },
+  { key: "maqueta",   label: "Maqueta hecha",   dot: "bg-sky-500",     chip: "bg-sky-500/15 text-sky-300 ring-sky-500/30" },
+  { key: "recontacto", label: "Recontactar",    dot: "bg-amber-500",   chip: "bg-amber-500/15 text-amber-300 ring-amber-500/30" },
+  { key: "ganado",    label: "Cerrado",         dot: "bg-emerald-500", chip: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30" },
+];
+
+export const BOARD_LABEL_MAP: Record<string, (typeof BOARD_LABELS)[number]> =
+  Object.fromEntries(BOARD_LABELS.map((l) => [l.key, l]));
 
 // ── Presencia web ─────────────────────────────────────────────────────────────
 // La señal central del negocio: la agencia vende sitios web, así que el mejor

@@ -36,6 +36,8 @@ function emptyLead(): Lead {
     contacted: "no",
     follow_up: null,
     notes: "",
+    board_position: null,
+    board_labels: [],
     updated_at: todayISO(),
   };
 }

@@ -132,6 +132,21 @@ succeed with no `.env` — the Supabase sync is skipped and only Excel is writte
 - `app/scrape/` queues searches into `scrape_jobs` (uses configured `search_queries`/max results),
   shows worker status + job progress live, and an in-dashboard operational guide (`WorkerGuide.tsx`)
   since the end client only has the dashboard, not the repo.
+- **Two views over the same leads**, toggled in `LeadsTable.tsx` (`view` state, remembered in
+  `localStorage.leads_view`): the table, and `LeadsBoard.tsx` — a Trello-style kanban whose columns
+  are the `outreach_status` options from `app_config` (falls back to `OUTREACH_OPTIONS`). Both share
+  the same filters, search, KPIs, realtime and `updateLead`, so a board drag is just an ordinary
+  lead update and lands in `activity_log` like any other (and is undoable from the history).
+  Dragging uses native HTML5 DnD — desktop only; on phones the card modal's "Columna" select is how
+  you move a card, which is why it must stay.
+- `CardModal.tsx` is the card detail: labels, follow-up date, the `notes` field, a per-lead comment
+  timeline (`lead_comments`), and image/PDF attachments (`lead_attachments` + Storage), with
+  drag-drop and Ctrl+V paste upload. The first image doubles as the card's cover on the board.
+- `app/guia/` (`/guia`) is the **WhatsApp prospecting playbook**: message scripts with copy buttons,
+  the step-by-step sale, objections, packages and funnel math. Static content held as data arrays at
+  the top of `PlaybookGuide.tsx` — add a script or objection by editing an array, not the JSX. It is
+  written against `web_status` (`sin_web` vs `solo_redes` get different scripts), so if those labels
+  change, the guide's copy changes too.
 - `app/config/` (`/config`) edits `app_config`; `app/admin/` (`/admin`) is the **user-management**
   panel (create/delete users, reset passwords). **Any authenticated user** can manage users. Admin
   actions go through the server route `app/api/admin/users/route.ts`, which uses a **service-role**
@@ -146,12 +161,18 @@ succeed with no `.env` — the Supabase sync is skipped and only Excel is writte
 
 ### Supabase schema (`supabase/`)
 `schema.sql` is the full, idempotent schema — run it in the SQL Editor. The numbered files
-(`02_blocklist.sql` … `07_presencia_web.sql`) are incremental migrations for databases created before
+(`02_blocklist.sql` … `08_tablero.sql`) are incremental migrations for databases created before
 those features existed. Tables: `leads` (manual columns `outreach_status`/`contacted`/`follow_up`/
 `notes` are never overwritten by sync), `contacts`, `activity_log`, `scrape_jobs`, `worker_status`,
-`blocklist`, `app_config` (one jsonb row per config section). RLS: authenticated users get full
-access; the scraper's service-role key bypasses it. **Realtime publication block must stay at the end
-of `schema.sql`** (after all tables exist) or a fresh run fails.
+`blocklist`, `app_config` (one jsonb row per config section), `lead_comments` and `lead_attachments`
+(the board's card timeline and files). RLS: authenticated users get full access; the scraper's
+service-role key bypasses it. **Realtime publication block must stay at the end of `schema.sql`**
+(after all tables exist) or a fresh run fails.
+
+`08_tablero.sql` also creates the **`lead-files` Storage bucket** (public read so `<img>` loads
+without signing; insert/delete require a session) and adds `leads.board_position` /
+`leads.board_labels`. Both are **Supabase-only** — they are not in `_LEAD_COLUMNS` (`db.py`) nor in
+the Excel, exactly like every other dashboard-owned field, so the scraper never touches them.
 
 ## Conventions & gotchas
 - **Config defaults live twice**: `config.py` (Python) and `dashboard/lib/configDefaults.ts` (TS).
@@ -170,5 +191,11 @@ of `schema.sql`** (after all tables exist) or a fresh run fails.
   `SUPABASE_SERVICE_KEY` — secret, scraper) vs `dashboard/.env.local`
   (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — public; plus
   `SUPABASE_SERVICE_ROLE_KEY` — secret, server-only). Never commit either.
+- **`board_position` is a fractional index, not a row number.** Dropping a card between two others
+  stores the midpoint of its neighbours, so a move rewrites one row instead of renumbering the
+  column. `NULL` means "nobody has ordered this by hand yet": `LeadsBoard.effPos()` maps null to a
+  large negative value derived from `lead_score`, which floats a freshly scraped high-score lead to
+  the top of its column. If you change that mapping, change the sort and the drop math together —
+  they must agree or cards land somewhere other than where they were dropped.
 - Vercel deploys with **Root Directory = `dashboard`** (the app is not in the repo root). See
   `dashboard/DEPLOY.md` for the full setup walkthrough.

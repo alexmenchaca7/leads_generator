@@ -117,13 +117,13 @@ const SCRIPTS: {
     tone: "emerald",
     incoming: "Sí, mándame info / A ver, enséñame",
     body: [
-      "Va. Para no mandarle algo genérico: ¿qué es lo que más le gustaría que hiciera la gente al entrar — que les llame, que aparte cita, o que vea el {{menú/catálogo}}?\n\nCon eso le armo la muestra con sus fotos y su información real, y se la paso el {{día}}.",
+      "Va. Para no mandarle algo genérico: ¿qué es lo que más le gustaría que hiciera la gente al entrar — que les llame, que aparte cita, o que vea el {{menú/catálogo}}?\n\nCon eso le armo la muestra con sus fotos y su información real, y se la paso el {{día concreto, con holgura}}.",
     ],
     why: "“Mándame info” normalmente es un no amable. Esto lo convierte en compromiso: una pregunta que los hace imaginar su sitio funcionando, y una fecha que crea una cita implícita. Además te da lo único que necesitas saber para la maqueta.",
   },
   {
     title: "G · Entregas la maqueta y pides la llamada",
-    when: "24–48 h después",
+    when: "El día que prometiste",
     tone: "emerald",
     body: [
       "Listo {{Nombre}}, aquí está: {{link a la maqueta}}\n\nEs su información real, con sus fotos de Maps. Ábrala en el celular, que así la va a ver la mayoría de sus clientes.\n\n¿Tiene 10 minutos mañana para que le explique cómo se conecta con su WhatsApp y qué faltaría? ¿Le queda mejor {{11 am}} o {{5 pm}}?",
@@ -204,6 +204,55 @@ const RESPONSES: {
     tone: "emerald",
   },
   {
+    said: "Gracias.",
+    means:
+      "El “no” educado mexicano: recibido, no me interesa, pero no te lo digo en la cara. Aun así te contestaron —el que de plano no quiere te deja en visto— y si tu mensaje terminaba en una pregunta, fíjate que no la contestaron: la esquivaron. Eso no es un no.",
+    reply:
+      "De nada 👍 Nada más dígame si le mando la muestra o mejor lo dejo por la paz — cualquiera de las dos está bien, no me ofendo.",
+    branches: [
+      {
+        said: "Si es un giro de los buenos (veterinaria, eventos, cafetería)",
+        reply:
+          "Le armé esto con sus fotos, sin compromiso: {{link}}\n\nSi no le late la borro y no lo molesto más. 👍",
+      },
+    ],
+    then:
+      "Nunca preguntes “¿entonces sí le interesa?”: eso los obliga a decir el no que estaban evitando. Y no te despidas tú — el “cualquier cosa aquí estoy” es cerrarte la puerta solo. Déjalo en “contactado”, no en “no contestó”: sí interactuó. Si te pasa seguido, el problema es el cierre del guion A: cambia la pregunta de sí/no por una afirmación con día concreto — “le mando el {{jueves}} una muestra, sin costo; si no le late me dice y no lo molesto más”. Casi nadie contesta “no me la mandes”. Pon el día que sabes que cumples, no el que te gustaría.",
+    tone: "amber",
+  },
+  {
+    said: "(Te dejan en visto.)",
+    means:
+      "No es rechazo, es la señal barata más útil que vas a tener: abrieron el mensaje, así que el interés existe y lo que falló fue el mensaje. Si lo vieron en minutos, pediste demasiado o se notó plantilla; si lo vieron días después, se enterró y no es personal. Ojo: mucha gente trae las palomitas apagadas, así que “no visto” no significa “no leído”.",
+    reply:
+      "{{Nombre}}, sin compromiso: los busqué como “{{giro}} en {{zona}}” y aparecen en Maps pero no hay página a dónde mandar a la gente. Se lo dejo por si le sirve el dato. 👍",
+    then:
+      "La regla es bajarle el precio a contestarte, no subirle el volumen: “¿vio mi mensaje?” es presión sin valor nuevo y es lo que gana bloqueos. Lo que mejor funciona es una nota de voz de 20 segundos — rompe al instante la sospecha de que eres un bot, porque un bot no manda audios. Y si el negocio vale la pena, mándale la maqueta sin avisar. Máximo tres toques contando el primero; en un giro de los buenos, mejor márcale o pásate al negocio.",
+    tone: "slate",
+  },
+  {
+    said: "Yo no soy el dueño; a él ya le ofrecieron y no le interesa, no está familiarizado y no invierte en publicidad.",
+    means:
+      "Quien te contestó te hizo un favor enorme: no te bloqueó, te dijo por qué se cayó la venta antes. Es tu mejor activo, no el obstáculo. Y te dio tres datos: repetir el pitch que ya oyó está muerto; “no está familiarizado” significa que no lo entiende (nadie dice “no le entiendo”, dice “no me interesa”), y eso se cura enseñando, nunca explicando; y si lo presentas como publicidad le estás pidiendo dinero de una bolsa que ya decidió no abrir.",
+    reply:
+      "Te agradezco un montón que me dijeras, en serio. Entonces mejor no le insisto con lo mismo que ya le ofrecieron.\n\nTe pregunto a ti que estás ahí diario: ¿cuánto tiempo se les va contestando por WhatsApp lo mismo — las fotos, los precios, qué fechas tienen libres?",
+    branches: [
+      {
+        said: "Ya que te contestó, el reencuadre",
+        reply:
+          "Va a sonar raro viniendo de mí: esto no es publicidad. La publicidad se paga cada mes y deja de servir en cuanto dejas de pagarla. Esto se hace una vez y se queda ahí.\n\n¿Te late si les armo una muestra con sus fotos, sin costo, y tú se la enseñas cuando lo veas de buenas?",
+      },
+      {
+        said: "Al entregarle la maqueta a tu contacto",
+        reply:
+          "Aquí está. Él no tiene que hacer nada ni aprender nada — yo la subo y yo la manejo. Si algún día quiere cambiar una foto o un precio, me manda un WhatsApp y yo se lo cambio.\n\nÁbresela en el celular para enseñársela, que así se ve mucho mejor.",
+      },
+    ],
+    then:
+      "No pases por encima de tu contacto para llegar al dueño: los quemas a los dos. Haz que esa persona sea quien se lo enseñe — el dueño no le abre el link a un desconocido, pero sí mira lo que su propia gente le pone enfrente. El “cuando lo veas de buenas” es la frase clave: la vuelve tu estratega en vez de tu mensajera. Cero palabras técnicas: nada de dominio, hosting ni posicionamiento. Y si el negocio tiene local —un salón, una clínica— considera ir en persona con la maqueta: convierte mucho más que cualquier mensaje y es tu ventaja sobre una agencia remota. Es ciclo largo: trabájalo con paciencia sin que te frene los 20 diarios.",
+    tone: "emerald",
+  },
+  {
     said: "No me gustaría tener un sitio web.",
     means:
       "Casi nunca es sobre el sitio web: es proxy de otra cosa, y hasta que sepas cuál estás disparando a ciegas. Una pregunta lo destapa — y no discutas, porque pelearle a la opinión del cliente es la forma más rápida de que te bloquee.",
@@ -252,7 +301,7 @@ const STEPS: { title: string; body: string; bullets?: string[] }[] = [
   },
   {
     title: "Maqueta para quien contestó",
-    body: "Una sola pantalla, en móvil, con su nombre, sus fotos, su teléfono y un botón de WhatsApp que sirva. Dos o tres horas de trabajo, y solo para quien ya levantó la mano.",
+    body: "Una sola pantalla, en móvil, con su nombre, sus fotos, su teléfono y un botón de WhatsApp que sirva. Solo para quien ya levantó la mano. Cuenta dos días desde que te dicen que sí — y por eso promete tres: cumplir la primera promesa chica es lo que te compra credibilidad para la grande.",
     bullets: [
       "Que se vea su logo y sus colores, aunque los saques de la fachada.",
       "Un solo botón principal: llamar, agendar o pedir. El que te dijeron en el guion F.",

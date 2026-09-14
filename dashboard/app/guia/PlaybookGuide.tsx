@@ -142,6 +142,101 @@ const SCRIPTS: {
   },
 ];
 
+// Qué hacer con lo que contestan al primer mensaje. Es distinto de OBJECTIONS:
+// aquello sale en la llamada o con la propuesta en la mano; esto sale en el
+// chat, antes de que haya nada que objetar.
+const RESPONSES: {
+  said: string;
+  means: string;
+  reply: string;
+  then: string;
+  tone: Tone;
+  branches?: { said: string; reply: string }[];
+}[] = [
+  {
+    said: "Por el momento no, muchas gracias.",
+    means:
+      "Nueve de cada diez veces no es un no: es un “no ahora” sin fecha. Todo tu trabajo aquí es convertirlo en fecha, y para eso hay que preguntar directo.",
+    reply:
+      "Sin problema, gracias por contestarme. Nada más para saber si le escribo en unos meses o ya no lo molesto: ¿es que ahorita no es el momento, o de plano no les late la idea?",
+    branches: [
+      {
+        said: "No es el momento / ando apretado ahorita",
+        reply:
+          "Va. ¿Le escribo a principios de {{mes}}? Le dejo mi número por si antes se ofrece.",
+      },
+      {
+        said: "No, de plano no nos interesa",
+        reply: "Perfecto, gracias por su tiempo. Cualquier cosa aquí estoy.",
+      },
+    ],
+    then:
+      "Columna “no interesado”, etiqueta Recontactar y —lo importante— fecha de seguimiento puesta. Sin fecha se te pierde. Cuando llegue, no vuelvas con “solo para dar seguimiento”: vuelve con un trabajo nuevo de su giro, con algo que cambió en su negocio, o con su temporada fuerte.",
+    tone: "amber",
+  },
+  {
+    said: "Ya tengo sitio web.",
+    means:
+      "Nunca discutas si lo tienen. Concede el punto y pide la liga: esa sola pregunta hace la mitad del trabajo, porque muy seguido te van a mandar su Facebook y la objeción se cae sin que tú digas nada. Otras veces no la encuentran ni ellos, que ya te dice todo.",
+    reply: "Ah perfecto, ¿cuál es? Para verlo antes de decirle cualquier cosa.",
+    then:
+      "Con la liga en mano, dos minutos: búscalos en Google como los buscaría un cliente (“{{giro}} en {{zona}}”, no por su nombre), ábrelo en el celular, y fíjate si tiene candado de seguridad y cuánto tarda en cargar. De ahí sale el siguiente mensaje.",
+    tone: "slate",
+  },
+  {
+    said: "(Te mandan la liga y el sitio está viejo o roto.)",
+    means:
+      "Cambia la pregunta: de “¿tiene sitio?” a “¿le está funcionando?”. Aquí la captura comparativa —su sitio actual en el celular, al lado de tu maqueta— es lo que la maqueta es en el guion G.",
+    reply:
+      "Ya lo vi. Está bien tener uno, pero lo abrí en el celular y {{problema concreto}}. ¿Le late que le mande una comparación de cómo se ve ahora y cómo se vería arreglado? Sin costo.",
+    then:
+      "Un rediseño es otra venta: el cliente ya cree en el producto, así que se argumenta con lo que pierde hoy, no con lo que ganaría de cero. Si el sitio carga rápido, se ve bien en celular y sí sale en Google, suéltalo: no es tu cliente.",
+    tone: "slate",
+  },
+  {
+    said: "Sí tengo página… (pero el sistema lo tenía como “sin web”).",
+    means:
+      "Esto casi siempre significa que su sitio no está puesto en su ficha de Google Maps. Es un problema real, concreto y verificable — y se lo puedes regalar. Es la mejor puerta de entrada que vas a tener con estos.",
+    reply:
+      "Su página sí existe, pero no está puesta en su ficha de Google Maps — ahí es donde más gente lo busca y no hay cómo llegarle. Se arregla en 5 minutos, ¿se lo explico?",
+    then:
+      "Ayudas primero, vendes después. No intentes corregirle la presencia web desde el tablero: el recálculo la revierte porque se calcula del Excel. Si de plano ya no es prospecto, vétalo — así el motor tampoco lo vuelve a levantar.",
+    tone: "emerald",
+  },
+  {
+    said: "No me gustaría tener un sitio web.",
+    means:
+      "Casi nunca es sobre el sitio web: es proxy de otra cosa, y hasta que sepas cuál estás disparando a ciegas. Una pregunta lo destapa — y no discutas, porque pelearle a la opinión del cliente es la forma más rápida de que te bloquee.",
+    reply:
+      "Claro, lo respeto. Nada más por curiosidad, para no andar ofreciendo lo que no sirve: ¿es que no lo ve necesario para su tipo de negocio, o más bien porque suena a estarle dando mantenimiento?",
+    branches: [
+      {
+        said: "Mis clientes son de recomendación / de aquí del barrio",
+        reply:
+          "Y así seguirá. La página no es para el que no lo conoce — es para el que ya lo recomendaron. Cuando alguien le pasa su nombre a un amigo, lo primero que hace ese amigo es buscarlo en el celular. Si no encuentra nada, la recomendación se enfría ahí.",
+      },
+      {
+        said: "No quiero andar atendiéndolo",
+        reply:
+          "No es como las redes. Una página no se alimenta: se hace una vez y se queda ahí trabajando sola. Si algún día quiere cambiar un precio o una foto, me manda un WhatsApp y yo se lo cambio.",
+      },
+      {
+        said: "No le sé a la tecnología",
+        reply:
+          "No tiene que tocar nada. Yo la hago, yo la subo y usted nada más me dice si le gusta.",
+      },
+      {
+        said: "Estoy lleno, no quiero más clientes",
+        reply:
+          "Entonces a lo mejor no le sirve para traer más gente. Pero sí para que le lleguen menos preguntas repetidas: si ahí están sus precios y horarios, deja de contestar lo mismo diez veces al día.",
+      },
+    ],
+    then:
+      "Una pregunta y ya. Si después de esa siguen en no, ciérralo bien: insistir aquí es lo que te gana reportes, porque a diferencia del “por ahorita no”, esta gente no te está pidiendo que vuelvas.",
+    tone: "amber",
+  },
+];
+
 const STEPS: { title: string; body: string; bullets?: string[] }[] = [
   {
     title: "Arma la lista del día",
@@ -294,6 +389,7 @@ const SECTIONS: [string, string][] = [
   ["reglas", "Seis reglas"],
   ["quien", "A quién primero"],
   ["guiones", "Los guiones"],
+  ["respuestas", "Qué contestan"],
   ["proceso", "El proceso"],
   ["llamada", "La llamada"],
   ["giros", "Por giro"],
@@ -440,6 +536,26 @@ export default function PlaybookGuide() {
             <ScriptCard key={s.title} script={s} />
           ))}
         </div>
+      </Section>
+
+      {/* ── Qué contestan ───────────────────────────────────────────────────── */}
+      <Section
+        id="respuestas"
+        eyebrow="Qué contestan"
+        title="Qué hacer con cada respuesta"
+        lead="Esto pasa en el chat, antes de que haya llamada o propuesta. La regla de todas: no vendas contra la opinión, vende contra el problema — si no hay problema, no hay venta, y eso está bien."
+      >
+        <div className="space-y-4">
+          {RESPONSES.map((r) => (
+            <ResponseCard key={r.said} item={r} />
+          ))}
+        </div>
+        <Note title="La diferencia que decide cuántas veces insistes">
+          “Por el momento no” es un no con fecha escondida: ahí sí vuelves, una vez, con algo nuevo.
+          “No me gustaría tener uno” es una postura: una pregunta y ya. Y hay noes que debes tomar —
+          el que está saturado, el que va a vender el negocio, el que ya se va a jubilar. Perseguir a
+          esos te cuesta las horas que rinden en los que no tienen sitio.
+        </Note>
       </Section>
 
       {/* ── Proceso ─────────────────────────────────────────────────────────── */}
@@ -692,6 +808,71 @@ function Segment({
         <span className="ml-auto text-[11px] text-slate-500">{note}</span>
       </div>
       <p className="mt-2 text-xs leading-relaxed text-slate-400">{children}</p>
+    </div>
+  );
+}
+
+function ResponseCard({ item }: { item: (typeof RESPONSES)[number] }) {
+  const [copied, setCopied] = useState(false);
+  const t = TONE[item.tone];
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(item.reply);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
+      <header className="flex items-start gap-3 border-b border-slate-800 bg-slate-800/40 px-4 py-3">
+        <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${t.bar}`} />
+        <h3 className="min-w-0 flex-1 text-sm font-semibold text-slate-100">“{item.said}”</h3>
+      </header>
+
+      <div className="space-y-3 p-4">
+        <p className="text-xs leading-relaxed text-slate-400">{item.means}</p>
+
+        <div className="flex items-start gap-3">
+          <p className="min-w-0 flex-1 whitespace-pre-wrap rounded-lg rounded-br-sm border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-sm leading-relaxed text-slate-200">
+            {withPlaceholders(item.reply, t.ph)}
+          </p>
+          <button
+            onClick={copy}
+            className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+              copied ? "bg-emerald-600 text-white" : "bg-indigo-600 text-white hover:bg-indigo-500"
+            }`}
+          >
+            {copied ? "Copiado ✓" : "Copiar"}
+          </button>
+        </div>
+
+        {item.branches && (
+          <div className="space-y-2 border-l-2 border-slate-800 pl-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              Según qué te contesten
+            </p>
+            {item.branches.map((b) => (
+              <div key={b.said} className="space-y-1">
+                <p className="text-xs font-medium text-slate-400">“{b.said}”</p>
+                <p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-300">
+                  → {withPlaceholders(b.reply, t.ph)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <footer className="border-t border-slate-800 px-4 py-3">
+        <p className="text-xs leading-relaxed text-slate-500">
+          <b className="font-semibold uppercase tracking-wide text-slate-600">Y luego · </b>
+          {item.then}
+        </p>
+      </footer>
     </div>
   );
 }
